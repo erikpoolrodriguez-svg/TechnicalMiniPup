@@ -4,7 +4,7 @@ const express = require("express");
 const http = require("node:http");
 const { Server } = require("socket.io");
 
-const PORT = Number(process.env.PORT) || 5000;
+const PORT = Number(process.env.PORT) || 3000;
 const TICK_RATE = 60;
 const MAX_ROOMS = 100;
 const app = express();
