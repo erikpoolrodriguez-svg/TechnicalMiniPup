@@ -1,0 +1,26 @@
+Trabaja sobre mi proyecto existente "Cyber Arena 2D" (HTML5 Canvas, Node.js, Express, Socket.IO; cliente en /public/game.js, servidor en /server.js). No lo reescribas ni elimines nada de lo que ya funciona: modifica solo lo necesario, directamente en los archivos.
+
+QUIERO: reemplazar el vacío (los huecos entre plataformas y el fondo del mapa) por LAVA. Que no se vea vacío oscuro por ningún lado: donde no hay suelo, hay lava.
+
+ASPECTO (dibujado por código con Canvas 2D, sin imágenes externas)
+- Estilo caricaturesco como una textura de lava de videojuego: capa superior naranja brillante con celdas redondeadas y bordes amarillos incandescentes, y una capa inferior más roja y oscura con manchas.
+- Debe cubrir todo el ancho del mapa y estar detrás de las plataformas del suelo y delante del fondo de la ciudad.
+- Ajusta los colores a mi mapa: si algún mapa es muy oscuro, que la lava siga destacando.
+
+MOVIMIENTO REALISTA
+- La superficie ondula con varias olas suaves que se desplazan a distintas velocidades.
+- Las celdas de la textura se desplazan despacio, se deforman y cambian de brillo.
+- Burbujas que suben y revientan, con pequeñas salpicaduras.
+- Chispas y ascuas que saltan y flotan hacia arriba.
+- Resplandor naranja que ilumina de abajo hacia arriba los bordes de las plataformas cercanas y un leve efecto de calor (distorsión o brillo pulsante) sobre la superficie.
+- Respeta la opción "Partículas avanzadas": con ella apagada, reduce burbujas y chispas pero mantén la lava animada.
+
+JUGABILIDAD
+- Tocar la lava mata al personaje (jugador y bots). Usa la misma lógica de caída al abismo que ya existe: hoy se mata a quien cae por debajo del mapa. Cambia el mensaje del kill feed a "X CAYÓ EN LA LAVA" y conserva la regla de que, si alguien cae poco después de ser golpeado, la baja se acredita a quien lo disparó.
+- Al caer: salpicadura grande de lava, humo, sonido sintetizado (Web Audio) y una vibración breve de pantalla si está activada.
+- Los bots deben seguir evitando los huecos y rescatándose con el doble salto como ahora; ajústalos si cambia la altura de la superficie.
+- La lava es solo decoración y peligro; no debe cambiar el tamaño del mapa, las plataformas ni las colisiones actuales.
+- Funciona en los 3 mapas y en el modo online (todos los jugadores ven la misma lava y las caídas se sincronizan con el sistema actual).
+- Mantén 60 FPS en PC y un rendimiento razonable en móvil: no dibujes lo que está fuera de la cámara y reutiliza partículas.
+
+Al terminar, dime qué archivos cambiaste y cómo probar la lava (caerse, ver las burbujas, la iluminación de las plataformas y el mensaje del kill feed).

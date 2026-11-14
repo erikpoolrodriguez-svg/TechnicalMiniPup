@@ -1,0 +1,14 @@
+{
+  "name": "cyber-arena-2d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Neon cyberpunk 2D platform shooter for desktop and mobile browsers",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "socket.io": "^4.8.4"
+  }
+}

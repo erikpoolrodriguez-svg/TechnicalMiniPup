@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080b17">
+  <meta name="description" content="Cyber Arena 2D — lucha en una arena cyberpunk de neón.">
+  <title>Cyber Arena 2D — Terminal de arena</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23080b17'/%3E%3Cpath d='M50 12 88 50 50 88 12 50Z' fill='none' stroke='%2300f3ff' stroke-width='7'/%3E%3Cpath d='M50 30 70 50 50 70 30 50Z' fill='none' stroke='%23ff2a85' stroke-width='6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="game-shell" id="cyber-arena">
+    <header class="topbar" id="app-header">
+      <a class="brand" href="#main-menu" aria-label="Cyber Arena 2D main menu">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">CYBER <span>ARENA</span><span class="brand-version">02</span></span>
+      </a>
+      <div class="topbar-status" aria-label="Connection status">
+        <span id="connection-status"><i class="status-led" aria-hidden="true"></i>Sistemas listos</span>
+        <span class="topbar-build">ARENA 2D / NEO-TOKYO</span>
+      </div>
+    </header>
+
+    <main id="game-ui">
+      <!-- MAIN MENU / PLAYER ID -->
+      <section class="screen menu-screen" id="screen-menu" data-screen="menu" aria-labelledby="menu-title">
+        <div class="arena-backdrop" aria-hidden="true">
+          <div class="city city-left"></div>
+          <div class="city city-right"></div>
+          <div class="distant-tower"></div>
+          <div class="holo-sign"></div>
+          <div class="holo-sign holo-sign-right"></div>
+          <div class="arena-platform platform-main"></div>
+          <div class="arena-platform platform-left"></div>
+          <div class="arena-platform platform-right"></div>
+          <div class="arena-grid"></div>
+        </div>
+        <div class="menu-content">
+          <div class="menu-copy">
+            <div class="season-tag"><span>◆</span> TEMPORADA 02 <span>·</span> REBELIÓN NEÓN</div>
+            <h1 class="game-title" id="menu-title">Cyber<span class="title-two">Arena 2D</span></h1>
+            <p class="menu-description">Una ciudad. Ningún lugar seguro. <strong>Haz que tu salto cuente.</strong></p>
+            <div class="menu-cta-row">
+              <button class="btn btn-primary" id="action-offline-match" type="button" data-action="play-offline">
+                Entrar a la arena <span class="btn-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="btn btn-pink" id="action-open-servers" type="button" data-action="open-lobby">
+                Buscar partida <span class="btn-arrow" aria-hidden="true">→</span>
+              </button>
+            </div>
+          </div>
+          <aside class="player-card" aria-label="Identidad del piloto">
+            <div class="card-kicker">IDENTIDAD DEL PILOTO <span>01 / 04</span></div>
+            <div class="player-field form-field">
+                <label class="field-label" for="player-name">Nombre del jugador</label>
+                <div class="name-input-wrap">
+                <input class="input name-input" id="player-name" name="playerName" type="text" maxlength="16" placeholder="Escribe tu alias" autocomplete="nickname" aria-describedby="name-hint">
+                <span class="field-counter" id="name-hint">16 MAX</span>
+              </div>
+            </div>
+              <div class="player-preview" aria-label="Equipamiento actual: clase Runner, color cian">
+              <div class="avatar-hex" aria-hidden="true">R</div>
+              <div><strong id="menu-player-class">RUNNER</strong><small id="menu-player-color">Clase neón · cian</small></div>
+              <span class="player-level">LVL 01</span>
+            </div>
+            <nav class="menu-links" aria-label="Game settings and loadout">
+               <button class="menu-link" id="action-open-characters" type="button" data-action="open-characters"><span>Elegir clase</span><span aria-hidden="true">↗</span></button>
+               <button class="menu-link" id="action-open-options" type="button" data-action="open-options"><span>Opciones</span><span aria-hidden="true">↗</span></button>
+            </nav>
+          </aside>
+        </div>
+        <div class="menu-foot"><span>PC + MÓVIL</span> &nbsp; / &nbsp; Combate multiplataforma</div>
+      </section>
+
+      <!-- ONLINE ROOM BROWSER / CREATE / JOIN -->
+      <section class="screen lobby-screen" id="screen-lobby" data-screen="lobby" aria-labelledby="lobby-title" hidden>
+        <div class="screen-inner">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <p class="eyebrow">RED MULTIJUGADOR / SECTOR 09</p>
+              <h1 class="screen-title" id="lobby-title">Encuentra tu <span class="title-accent">arena</span></h1>
+              <p class="screen-lede">Elige una sala activa o crea una nueva.</p>
+            </div>
+            <button class="btn btn-quiet" id="action-lobby-back" type="button" data-action="back-to-menu"><span aria-hidden="true">←</span> Menú principal</button>
+          </div>
+          <div class="lobby-layout">
+            <section class="panel room-panel" aria-labelledby="rooms-heading">
+              <div class="panel-header">
+                <h2 class="panel-title" id="rooms-heading">Salas activas <span class="tag" id="room-count">0 activas</span></h2>
+                <div class="room-toolbar">
+                  <label class="minor-label" for="room-search">Filtrar</label>
+                  <input class="input room-search" id="room-search" type="search" placeholder="Nombre de sala" aria-label="Filtrar salas por nombre">
+                  <button class="btn btn-small btn-icon" id="action-refresh-rooms" type="button" data-action="refresh-rooms" aria-label="Actualizar salas" title="Actualizar salas">↻</button>
+                </div>
+              </div>
+              <div class="room-list" id="room-list" role="list" aria-label="Salas multijugador disponibles">
+                <div class="room-empty" id="room-empty" role="status">No hay salas públicas activas. Crea una para invitar a tus amigos.</div>
+              </div>
+              <div class="lobby-footer">
+                <span class="connection-note" id="network-note"><strong>● Sin conexión</strong> &nbsp; Las salas aparecen en tiempo real</span>
+                <button class="btn btn-small btn-quiet" id="action-play-offline-lobby" type="button" data-action="play-offline">Jugar offline vs bots</button>
+              </div>
+            </section>
+
+            <section class="panel lobby-create" aria-labelledby="create-room-heading">
+              <div class="panel-header">
+                <h2 class="panel-title" id="create-room-heading">Crear una sala</h2>
+                <span class="tag tag-pink">ANFITRIÓN</span>
+              </div>
+              <div class="panel-body">
+                <form class="room-create-form" id="create-room-form" data-action="create-room">
+                  <div class="form-field">
+                    <label class="field-label" for="room-name">Nombre de la sala</label>
+                    <input class="input" id="room-name" name="roomName" type="text" maxlength="24" placeholder="Ej.: Turno nocturno" required>
+                  </div>
+                  <div class="form-grid-2">
+                    <div class="form-field">
+                      <label class="field-label" for="room-max-players">Límite de jugadores</label>
+                      <select class="select" id="room-max-players" name="maxPlayers">
+                        <option value="2">2 jugadores</option><option value="4">4 jugadores</option><option value="6" selected>6 jugadores</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label class="field-label" for="room-map">Mapa</label>
+                      <select class="select" id="room-map" name="map">
+                        <option value="NEON DISTRICT">Distrito Neón</option><option value="SKYLINE">Horizonte</option><option value="GRID ZERO">Grid Zero</option>
+                      </select>
+                    </div>
+                  </div>
+                  <fieldset class="form-field" style="border:0;padding:0;margin:0">
+                    <legend class="field-label">Privacidad de la sala</legend>
+                    <div class="privacy-options">
+                      <label class="choice"><input id="room-privacy-public" type="radio" name="privacy" value="public" checked> Pública</label>
+                      <label class="choice"><input id="room-privacy-private" type="radio" name="privacy" value="private"> Privada</label>
+                    </div>
+                  </fieldset>
+                  <div class="form-field">
+                    <div class="private-code-result" id="private-code-result" hidden>Clave de invitación: <strong id="room-code-display" data-room-code></strong></div>
+                  </div>
+                  <button class="btn btn-primary btn-wide" id="action-create-room" type="submit" data-action="create-room">Crear sala <span class="btn-arrow" aria-hidden="true">↗</span></button>
+                  <div class="divider-label">O únete con una clave</div>
+                  <div class="code-join">
+                    <label class="field-label" for="join-room-code" hidden>Clave de sala</label>
+                    <input class="input input-code" id="join-room-code" name="joinCode" type="text" minlength="4" maxlength="4" placeholder="CLAVE" autocomplete="off" aria-label="Escribe una clave de sala de cuatro letras">
+                    <button class="btn btn-pink" id="action-join-by-code" type="button" data-action="join-by-code">Unirse</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- FOUR-CLASS CHARACTER SELECT -->
+      <section class="screen character-screen" id="screen-characters" data-screen="characters" aria-labelledby="characters-title" hidden>
+        <div class="screen-inner">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <p class="eyebrow">EQUIPAMIENTO / PILOTO 01</p>
+              <h1 class="screen-title" id="characters-title">Elige tu <span class="title-accent">ventaja</span></h1>
+              <p class="screen-lede">Cuatro clases. Una oportunidad para ganar.</p>
+            </div>
+            <button class="btn btn-quiet" id="action-characters-back" type="button" data-action="back-to-menu"><span aria-hidden="true">←</span> Menú principal</button>
+          </div>
+          <div class="character-layout">
+            <div>
+              <div class="class-grid" role="group" aria-label="Elige una clase de personaje">
+                <button class="class-card" id="select-class-runner" type="button" data-action="select-class" data-class="runner" aria-pressed="true">
+                  <div class="class-card-top"><span class="class-index">CLASE / 01</span><span class="tag">Elegida</span></div>
+                  <span class="class-glyph" aria-hidden="true"></span>
+                  <div><h2 class="class-name">Runner</h2><p class="class-role">Corre rápido y salta más alto.</p><div class="class-stats"><span>VELOCIDAD <b>ALTA</b></span><span>VIDA <b>100</b></span></div></div>
+                </button>
+                <button class="class-card" id="select-class-tank" type="button" data-action="select-class" data-class="tank" aria-pressed="false">
+                  <div class="class-card-top"><span class="class-index">CLASE / 02</span><span class="tag tag-pink">BLINDAJE</span></div>
+                  <span class="class-glyph" aria-hidden="true"></span>
+                  <div><h2 class="class-name">Tank</h2><p class="class-role">Resiste más daño con su armadura.</p><div class="class-stats"><span>VELOCIDAD <b>BAJA</b></span><span>VIDA <b>130</b></span></div></div>
+                </button>
+                <button class="class-card" id="select-class-sniper" type="button" data-action="select-class" data-class="sniper" aria-pressed="false">
+                  <div class="class-card-top"><span class="class-index">CLASE / 03</span><span class="tag">PRECISIÓN</span></div>
+                  <span class="class-glyph" aria-hidden="true"></span>
+                  <div><h2 class="class-name">Sniper</h2><p class="class-role">Mejor alcance y disparos críticos.</p><div class="class-stats"><span>ALCANCE <b>ALTO</b></span><span>CRÍTICO <b>MEJORADO</b></span></div></div>
+                </button>
+                <button class="class-card" id="select-class-grappler" type="button" data-action="select-class" data-class="grappler" aria-pressed="false">
+                  <div class="class-card-top"><span class="class-index">CLASE / 04</span><span class="tag">ACROBACIA</span></div>
+                  <span class="class-glyph" aria-hidden="true"></span>
+                  <div><h2 class="class-name">Grappler</h2><p class="class-role">Trepa y alcanza más lejos con el gancho.</p><div class="class-stats"><span>ESCALADA <b>5 S</b></span><span>GANCHO <b>LARGO</b></span></div></div>
+                </button>
+              </div>
+              <div class="character-actions">
+                <span class="minor-label">Clases balanceadas para el combate</span>
+                <button class="btn btn-primary" id="action-confirm-character" type="button" data-action="confirm-character">Confirmar <span class="btn-arrow" aria-hidden="true">→</span></button>
+              </div>
+            </div>
+            <section class="panel preview-panel" aria-labelledby="preview-heading">
+              <div class="panel-header"><h2 class="panel-title" id="preview-heading">Vista previa</h2><span class="live-indicator">LISTO</span></div>
+              <div class="preview-stage" id="character-preview" data-preview-class="runner" aria-label="Vista previa de Runner">
+                <div class="preview-rings" aria-hidden="true"></div>
+                <div class="fighter" aria-hidden="true">
+                  <div class="fighter-head"></div><div class="fighter-body"></div><div class="fighter-arm"></div><div class="fighter-gun"></div><div class="fighter-leg"></div><div class="fighter-leg"></div>
+                </div>
+              </div>
+              <div class="color-row" role="group" aria-label="Elige el color neón del traje">
+                <span class="color-label">Color del traje</span>
+                <button class="color-swatch" style="--swatch:#00f3ff" id="color-cyan" type="button" data-action="select-color" data-color="cyan" aria-label="Cyan suit color" aria-pressed="true"></button>
+                <button class="color-swatch" style="--swatch:#ff2a85" id="color-magenta" type="button" data-action="select-color" data-color="magenta" aria-label="Magenta suit color" aria-pressed="false"></button>
+                <button class="color-swatch" style="--swatch:#ffd35e" id="color-yellow" type="button" data-action="select-color" data-color="yellow" aria-label="Yellow suit color" aria-pressed="false"></button>
+                <button class="color-swatch" style="--swatch:#a5ff7a" id="color-green" type="button" data-action="select-color" data-color="green" aria-label="Green suit color" aria-pressed="false"></button>
+                <button class="color-swatch" style="--swatch:#b18bff" id="color-purple" type="button" data-action="select-color" data-color="purple" aria-label="Purple suit color" aria-pressed="false"></button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- OPTIONS -->
+      <section class="screen options-screen" id="screen-options" data-screen="options" aria-labelledby="options-title" hidden>
+        <div class="screen-inner">
+          <div class="section-heading">
+            <div class="section-heading-copy">
+              <p class="eyebrow">SISTEMA / CONFIGURACIÓN PERSONAL</p>
+              <h1 class="screen-title" id="options-title">Ajusta tu <span class="title-accent">equipo</span></h1>
+              <p class="screen-lede">Configura los controles a tu medida.</p>
+            </div>
+            <button class="btn btn-quiet" id="action-options-back" type="button" data-action="back-to-menu"><span aria-hidden="true">←</span> Volver</button>
+          </div>
+          <div class="options-layout">
+            <section class="panel options-panel" aria-label="Game settings">
+              <div class="option-row">
+                <div><label class="option-name" for="setting-control-mode">Modo de control</label><span class="option-description">Elige cómo jugar.</span></div>
+                <div class="option-control"><select class="select" id="setting-control-mode" name="controlMode" data-setting="controlMode"><option value="auto">Automático</option><option value="pc">PC · teclado y ratón</option><option value="touch">Móvil · controles táctiles</option></select></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-volume">Volumen de efectos</label><span class="option-description">Disparos y señales de la arena.</span></div>
+                <div class="option-control range-control"><input id="setting-volume" name="volume" data-setting="volume" type="range" min="0" max="100" value="72" aria-label="Volumen de efectos de sonido"><output class="range-value" for="setting-volume">72%</output></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-sensitivity">Sensibilidad de apuntado</label><span class="option-description">Respuesta del joystick táctil.</span></div>
+                <div class="option-control range-control"><input id="setting-sensitivity" name="sensitivity" data-setting="sensitivity" type="range" min="1" max="100" value="58" aria-label="Sensibilidad de apuntado"><output class="range-value" for="setting-sensitivity">58</output></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-screen-shake">Vibración de pantalla</label><span class="option-description">Efecto visual al recibir impactos.</span></div>
+                <div class="option-control"><label class="switch" aria-label="Vibración de pantalla"><input id="setting-screen-shake" name="screenShake" data-setting="screenShake" type="checkbox" checked><span class="switch-track"></span></label></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-advanced-particles">Partículas avanzadas</label><span class="option-description">Más chispas y estelas de movimiento.</span></div>
+                <div class="option-control"><label class="switch" aria-label="Partículas avanzadas"><input id="setting-advanced-particles" name="advancedParticles" data-setting="advancedParticles" type="checkbox" checked><span class="switch-track"></span></label></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-show-stats">Mostrar FPS / ping</label><span class="option-description">Datos de rendimiento durante la partida.</span></div>
+                <div class="option-control"><label class="switch" aria-label="Mostrar estadísticas de rendimiento"><input id="setting-show-stats" name="showStats" data-setting="showStats" type="checkbox" checked><span class="switch-track"></span></label></div>
+              </div>
+            </section>
+            <aside class="options-aside">
+              <div class="tip-card">
+                <h3>Consejo / 01</h3>
+                <p>El juego se adapta al teléfono en vertical u horizontal. Puedes mover y cambiar el tamaño de cada control durante la partida.</p>
+              </div>
+              <div class="panel">
+                <div class="panel-header"><h2 class="panel-title">Controles de PC</h2><span class="tag">TECLADO</span></div>
+                <div class="panel-body">
+                  <p class="connection-note"><span class="keycap">A</span><span class="keycap">D</span> Moverse &nbsp; <span class="keycap">W</span> / <span class="keycap">Espacio</span> Saltar</p>
+                  <p class="connection-note"><span class="keycap">Ratón</span> Apuntar &nbsp; <span class="keycap">Clic</span> Disparar</p>
+                  <p class="connection-note"><span class="keycap">Clic der.</span> Gancho &nbsp; <span class="keycap">TAB</span> Marcador</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+          <div class="options-actions">
+            <button class="btn btn-quiet" id="action-reset-options" type="button" data-action="reset-options">Restablecer</button>
+            <button class="btn btn-primary" id="action-save-options" type="button" data-action="save-options">Guardar ajustes <span class="btn-arrow" aria-hidden="true">✓</span></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- MATCH HUD / ARENA ENGINE MOUNT -->
+      <section class="screen match-screen" id="screen-game" data-screen="game" aria-label="Active match" hidden>
+        <div class="match-stage" id="game-stage" data-game-stage>
+          <canvas class="match-canvas" id="game-canvas" aria-label="Arena de combate interactiva"></canvas>
+          <div class="hud-top">
+            <section class="hud-player" aria-label="Estado del jugador">
+              <div class="hud-name"><span id="hud-player-name">PILOTO_01</span><span class="hud-class" id="hud-player-class">RUNNER</span></div>
+              <div class="health-label"><span>Integridad</span><strong id="hud-player-hp">100 / 100</strong></div>
+              <div class="health-track" role="meter" aria-label="Vida del jugador" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div class="health-fill" id="hud-health-fill"></div></div>
+            </section>
+            <div class="match-meta" aria-label="Match information">
+              <div class="match-chip">Mapa <strong id="hud-map">DISTRITO NEÓN</strong></div>
+              <div class="match-chip">Tiempo <strong id="hud-match-time">00:00</strong></div>
+              <div class="match-chip">Ping <strong id="hud-ping">—</strong></div>
+              <div class="match-chip room-code-chip" id="hud-room-code" hidden>CLAVE <strong id="hud-room-code-value"></strong></div>
+            </div>
+            <div class="hud-performance" id="hud-performance">FPS <strong id="hud-fps">60</strong></div>
+            <div class="hud-actions">
+              <button class="btn btn-small btn-quiet" id="action-toggle-scoreboard" type="button" data-action="toggle-scoreboard" aria-controls="hud-scoreboard" aria-pressed="false">Puntuación <span class="keycap">TAB</span></button>
+              <button class="btn btn-small btn-quiet touch-layout-trigger" id="action-edit-controls" type="button" data-action="edit-controls" aria-label="Editar controles táctiles" aria-controls="touch-layout-editor">Editar</button>
+              <button class="btn btn-small btn-pink" id="action-pause-match" type="button" data-action="pause-match">Pausa <span aria-hidden="true">Ⅱ</span></button>
+            </div>
+          </div>
+          <aside class="hud-scoreboard" id="hud-scoreboard" aria-label="Match scoreboard">
+            <div class="score-head">PUNTUACIÓN / BAJAS</div>
+            <div id="scoreboard-body" data-scoreboard></div>
+          </aside>
+          <div class="kill-feed" id="match-kill-feed" data-kill-feed aria-label="Eliminaciones recientes" aria-live="polite"></div>
+          <div class="hud-controls-hint" aria-label="Controles"><span class="keycap">A</span><span class="keycap">D</span> Moverse <span class="keycap">SHIFT</span> Correr <span class="keycap">S / ↓</span> Agacharse / deslizarse <span class="keycap">ESPACIO</span> Saltar <span class="keycap">CLIC</span> Disparar</div>
+          <section class="weapon-hud" aria-label="Arma y munición actuales">
+            <span class="weapon-type">Arma principal</span>
+            <strong class="weapon-name" id="hud-weapon-name">Pistola de plasma</strong>
+            <div class="weapon-ammo"><strong id="hud-ammo">∞</strong> <span id="hud-ammo-label">CARGA INFINITA</span></div>
+          </section>
+          <div class="mobile-controls" aria-label="Controles táctiles">
+            <button class="mobile-stick mobile-control-item" id="touch-move-stick" type="button" data-action="touch-move" data-touch-control aria-label="Joystick de movimiento">Mover</button>
+            <button class="touch-button mobile-control-item" id="touch-grapple" type="button" data-action="touch-grapple" data-touch-control aria-label="Gancho">Gancho</button>
+            <button class="touch-button jump mobile-control-item" id="touch-jump" type="button" data-action="touch-jump" data-touch-control aria-label="Saltar">Saltar</button>
+            <button class="touch-button mobile-control-item" id="touch-crouch" type="button" data-action="touch-crouch" data-touch-control aria-label="Agacharse o deslizarse">Agachar</button>
+            <button class="mobile-stick mobile-control-item" id="touch-aim-stick" type="button" data-action="touch-aim" data-touch-control aria-label="Joystick para apuntar y disparar">Apuntar</button>
+          </div>
+          <aside class="touch-layout-editor" id="touch-layout-editor" aria-label="Ajustes de controles táctiles" hidden>
+            <div class="touch-editor-heading"><strong>Diseño de controles</strong><span>Arrastra cada botón para moverlo</span></div>
+            <label for="touch-size">Tamaño <output id="touch-size-value">100%</output></label>
+            <input id="touch-size" type="range" min="70" max="140" value="100">
+            <div class="touch-editor-actions">
+              <button class="btn btn-small btn-quiet" id="action-reset-touch-layout" type="button" data-action="reset-touch-layout">Restablecer</button>
+              <button class="btn btn-small btn-primary" id="action-done-touch-layout" type="button" data-action="done-touch-layout">Listo</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAUSE OVERLAY STATE -->
+      <section class="screen overlay-screen pause-screen" id="screen-pause" data-screen="pause" aria-labelledby="pause-title" hidden>
+        <div class="overlay-card">
+          <p class="eyebrow">PARTIDA EN PAUSA / MOMENTO SEGURO</p>
+          <h1 class="screen-title" id="pause-title">Toma un <span class="title-accent">respiro.</span></h1>
+          <p class="overlay-text">La arena espera. Tú decides el siguiente movimiento.</p>
+          <div class="pause-meta"><span>Puntuación <strong id="pause-score">0</strong></span><span>Posición <strong id="pause-placement">—</strong></span></div>
+          <div class="overlay-actions">
+            <button class="btn btn-primary btn-wide" id="action-resume-match" type="button" data-action="resume-match">Volver al combate <span class="btn-arrow" aria-hidden="true">→</span></button>
+            <button class="btn btn-quiet btn-wide" id="action-pause-options" type="button" data-action="open-options">Opciones</button>
+            <button class="btn btn-pink btn-wide" id="action-leave-match" type="button" data-action="leave-match">Salir de la partida</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- MATCH RESULTS STATE -->
+      <section class="screen overlay-screen results-screen" id="screen-results" data-screen="results" aria-labelledby="results-title" hidden>
+        <div class="overlay-card">
+          <p class="eyebrow">PARTIDA FINALIZADA / DISTRITO NEÓN</p>
+          <h1 class="screen-title" id="results-title">Resultado de la <span class="title-accent">arena</span></h1>
+          <div class="result-place" id="result-placement">—<small></small></div>
+          <p class="overlay-text" id="result-player-line">Tu combate ha terminado.</p>
+          <div class="result-stats" aria-label="Estadísticas de la partida">
+            <div class="result-stat"><strong id="result-kills">0</strong><span>Eliminaciones</span></div>
+            <div class="result-stat"><strong id="result-deaths">0</strong><span>Caídas</span></div>
+            <div class="result-stat"><strong id="result-score">0</strong><span>Puntuación</span></div>
+          </div>
+          <div class="overlay-actions">
+            <button class="btn btn-primary btn-wide" id="action-play-again" type="button" data-action="play-again">Jugar otra vez <span class="btn-arrow" aria-hidden="true">↗</span></button>
+            <button class="btn btn-quiet btn-wide" id="action-results-lobby" type="button" data-action="open-lobby">Volver a las salas</button>
+            <button class="btn btn-pink btn-wide" id="action-results-menu" type="button" data-action="back-to-menu">Menú principal</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="game-toast" role="status" aria-live="polite" hidden></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/game.js"></script>
+</body>
+</html>
