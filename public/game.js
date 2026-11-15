@@ -131,6 +131,7 @@
     lavaParticlePool: [],
     lavaBubbleTimer: 0,
     lavaEmberTimer: 0,
+    lavaTime: 0,
     crates: [],
     feed: [],
     keys: new Set(),
@@ -1305,9 +1306,12 @@
 
     if (player.x < 0) { player.x = 0; player.vx = Math.max(0, player.vx); }
     if (player.x + player.width > WORLD.width) { player.x = WORLD.width - player.width; player.vx = Math.min(0, player.vx); }
-    if (player.y > WORLD.height + 70) {
+    if (player.y + player.height >= lavaSurfaceY(player.x + player.width / 2)) {
       player.hp = 0;
-      eliminate(player, isPlayer ? "the abyss" : "the abyss");
+      lavaDeath(player, isPlayer);
+    } else if (player.y > WORLD.height + 70) {
+      player.hp = 0;
+      eliminate(player, "the abyss");
     }
     if (isPlayer && Math.abs(player.vx) > 300 && Math.random() < dt * 9) {
       addParticle(player.x + player.width / 2 - player.facing * 13, player.y + player.height * 0.6, player.color, 1, 35);
@@ -1479,6 +1483,8 @@
           if (segmentHitsRect(previousX, previousY, bullet.x, bullet.y, bot.x - 2, bot.y - 2, bot.x + bot.width + 2, bot.y + bot.height + 2)) {
             const critical = bullet.weapon === "RAIL SNIPER" || Math.random() < (classes[state.player.class]?.critical || 1) * 0.075;
             bot.hp = Math.max(0, bot.hp - bullet.damage * (critical ? classes[state.player.class]?.critical || 1 : 1));
+            bot.lastHitBy = state.player;
+            bot.lastHitAt = performance.now();
             addParticle(bullet.x, bullet.y, critical ? colors.yellow : bot.color, 10, 180);
             if (state.screenShake && critical) state.shake += 4;
             if (bot.hp <= 0) {
@@ -1514,8 +1520,10 @@
           player.hp = Math.max(0, player.hp - bullet.damage * (classes[player.class]?.recoil || 1));
           addParticle(bullet.x, bullet.y, colors.pink, 8, 155);
           state.shake += 4;
+          const killer = state.bots.find((candidate) => candidate.id === bullet.owner);
+          player.lastHitBy = killer || null;
+          player.lastHitAt = performance.now();
           if (player.hp <= 0) {
-            const killer = state.bots.find((candidate) => candidate.id === bullet.owner);
             awardKill(killer);
             eliminate(player, killer?.name || bullet.owner);
           }
@@ -1526,6 +1534,8 @@
             if (target.dead || target.invulnerable > 0 || target.id === bullet.owner) continue;
             if (segmentHitsRect(previousX, previousY, bullet.x, bullet.y, target.x - 2, target.y - 2, target.x + target.width + 2, target.y + target.height + 2)) {
               target.hp = Math.max(0, target.hp - bullet.damage * (classes[target.class]?.recoil || 1));
+              target.lastHitBy = state.bots.find((candidate) => candidate.id === bullet.owner) || null;
+              target.lastHitAt = performance.now();
               addParticle(bullet.x, bullet.y, target.color, 8, 145);
               if (target.hp <= 0) {
                 const killer = state.bots.find((candidate) => candidate.id === bullet.owner);
@@ -1551,7 +1561,7 @@
     }
   }
 
-  function eliminate(entity, killerName) {
+  function eliminate(entity, killerName, cause) {
     if (entity.dead) return;
     entity.dead = true;
     entity.streak = 0;
@@ -1572,7 +1582,7 @@
     state.shake += 9;
     if (entity === state.player) {
       state.deaths += 1;
-      pushFeed(`${entity.name} FUE ELIMINADO`, colors.pink);
+      pushFeed(cause === "lava" ? `${entity.name} CAYÓ EN LA LAVA` : `${entity.name} FUE ELIMINADO`, cause === "lava" ? "#ff8c2a" : colors.pink);
       setTimeout(() => {
         if (!state.active) return;
         entity.x = 300 + Math.random() * 90;
@@ -1587,7 +1597,7 @@
         entity.climbStamina = classes[entity.class]?.stamina || 240;
       }, 1700);
     } else {
-      pushFeed(`${killerName} ELIMINÓ A ${entity.name}`, state.player?.color || colors.cyan);
+      pushFeed(cause === "lava" ? `${entity.name} CAYÓ EN LA LAVA` : `${killerName} ELIMINÓ A ${entity.name}`, cause === "lava" ? "#ff8c2a" : state.player?.color || colors.cyan);
       setTimeout(() => {
         if (!state.active || !state.bots.includes(entity)) return;
         entity.x = 550 + Math.random() * 1100;
@@ -1786,6 +1796,7 @@
     updateBullets(dt);
     updateCrates(dt);
     updateParticles(dt);
+    updateLava(dt);
     updateNetwork(dt);
     state.cameraX += (Math.max(0, Math.min(WORLD.width - VIEW.width, player.x + player.width / 2 - VIEW.width / 2)) - state.cameraX) * Math.min(1, dt * 5);
     state.cameraY += (Math.max(0, Math.min(WORLD.height - VIEW.height, player.y + player.height / 2 - VIEW.height / 2)) - state.cameraY) * Math.min(1, dt * 5);
@@ -1879,6 +1890,287 @@
           }
         }
       }
+    }
+  }
+
+  function lavaSurfaceY(x) {
+    const t = state.lavaTime;
+    return LAVA_SURFACE_BASE_Y +
+      Math.sin(x * 0.0062 + t * 0.85) * 7 +
+      Math.sin(x * 0.0141 - t * 1.6) * 4 +
+      Math.sin(x * 0.0021 + t * 0.35) * 5;
+  }
+
+  function acquireLavaParticle() {
+    return state.lavaParticlePool.pop() || {};
+  }
+
+  function releaseLavaParticle(index) {
+    const particle = state.lavaParticles[index];
+    state.lavaParticles.splice(index, 1);
+    if (state.lavaParticlePool.length < 140) state.lavaParticlePool.push(particle);
+  }
+
+  function spawnLavaBubble() {
+    const particle = acquireLavaParticle();
+    particle.kind = "bubble";
+    particle.x = state.cameraX - 60 + Math.random() * (VIEW.width + 120);
+    particle.y = LAVA_SURFACE_BASE_Y + 40 + Math.random() * 90;
+    particle.r = 2.5 + Math.random() * 4.5;
+    particle.vy = -(12 + Math.random() * 22);
+    particle.drift = 6;
+    particle.phase = Math.random() * 7;
+    particle.life = 2.4;
+    state.lavaParticles.push(particle);
+  }
+
+  function spawnLavaEmber() {
+    const particle = acquireLavaParticle();
+    const x = state.cameraX - 40 + Math.random() * (VIEW.width + 80);
+    particle.kind = "ember";
+    particle.x = x;
+    particle.y = lavaSurfaceY(x) - 4;
+    particle.vx = (Math.random() - 0.5) * 26;
+    particle.vy = -(36 + Math.random() * 62);
+    particle.size = 1.4 + Math.random() * 2.2;
+    particle.life = 1.1 + Math.random() * 1.3;
+    particle.maxLife = particle.life;
+    particle.phase = Math.random() * 7;
+    state.lavaParticles.push(particle);
+  }
+
+  function spawnLavaSplash(x, y, count, power) {
+    for (let i = 0; i < count; i += 1) {
+      const particle = acquireLavaParticle();
+      particle.kind = "splash";
+      particle.x = x + (Math.random() - 0.5) * 26;
+      particle.y = y - 2;
+      particle.vx = (Math.random() - 0.5) * power;
+      particle.vy = -(90 + Math.random() * power * 0.8);
+      particle.size = 2 + Math.random() * 3.4;
+      particle.color = Math.random() < 0.5 ? "#ffb347" : "#ff7418";
+      particle.life = 0.5 + Math.random() * 0.55;
+      particle.maxLife = particle.life;
+      state.lavaParticles.push(particle);
+    }
+    if (state.advancedParticles) {
+      for (let i = 0; i < 4; i += 1) {
+        const particle = acquireLavaParticle();
+        particle.kind = "smoke";
+        particle.x = x + (Math.random() - 0.5) * 34;
+        particle.y = y - 6 - Math.random() * 12;
+        particle.vx = (Math.random() - 0.5) * 14;
+        particle.vy = -(24 + Math.random() * 26);
+        particle.size = 7 + Math.random() * 10;
+        particle.life = 1.2 + Math.random() * 0.9;
+        particle.maxLife = particle.life;
+        state.lavaParticles.push(particle);
+      }
+    }
+  }
+
+  function bigLavaSplash(x, surface) {
+    spawnLavaSplash(x, surface, state.advancedParticles ? 18 : 8, 260);
+  }
+
+  function lavaDeath(entity, isPlayer) {
+    if (entity.dead) return;
+    const surface = lavaSurfaceY(entity.x + entity.width / 2);
+    bigLavaSplash(entity.x + entity.width / 2, surface);
+    if (state.screenShake) state.shake += 7;
+    sound(85, 0.55, "sawtooth", 0.2);
+    sound(1250, 0.28, "square", 0.05);
+    const shooter = entity.lastHitBy;
+    if (shooter && !shooter.dead && shooter !== entity &&
+        performance.now() - (entity.lastHitAt || 0) < LAVA_KILL_CREDIT_WINDOW) {
+      awardKill(shooter);
+    }
+    entity.lastHitBy = null;
+    eliminate(entity, "LAVA", "lava");
+  }
+
+  function updateLava(dt) {
+    state.lavaBubbleTimer -= dt;
+    if (state.lavaBubbleTimer <= 0) {
+      state.lavaBubbleTimer = (state.advancedParticles ? 0.34 : 1.1) + Math.random() * 0.6;
+      spawnLavaBubble();
+    }
+    state.lavaEmberTimer -= dt;
+    if (state.lavaEmberTimer <= 0) {
+      state.lavaEmberTimer = (state.advancedParticles ? 0.16 : 0.5) + Math.random() * 0.2;
+      spawnLavaEmber();
+    }
+    for (let index = state.lavaParticles.length - 1; index >= 0; index -= 1) {
+      const particle = state.lavaParticles[index];
+      particle.life -= dt;
+      particle.phase += dt;
+      if (particle.kind === "bubble") {
+        particle.y += particle.vy * dt;
+        particle.x += Math.sin(particle.phase * 2) * particle.drift * dt;
+        if (particle.y <= lavaSurfaceY(particle.x) + 2 || particle.life <= 0) {
+          spawnLavaSplash(particle.x, lavaSurfaceY(particle.x), state.advancedParticles ? 3 : 2, 120);
+          releaseLavaParticle(index);
+        }
+      } else if (particle.kind === "splash") {
+        particle.vy += 760 * dt;
+        particle.x += particle.vx * dt;
+        particle.y += particle.vy * dt;
+        if (particle.life <= 0 || particle.y > lavaSurfaceY(particle.x) + 12) releaseLavaParticle(index);
+      } else if (particle.kind === "ember") {
+        particle.y += particle.vy * dt;
+        particle.x += (particle.vx + Math.sin(particle.phase * 3) * 18) * dt;
+        particle.vy *= Math.exp(-0.4 * dt);
+        if (particle.life <= 0) releaseLavaParticle(index);
+      } else {
+        particle.x += particle.vx * dt;
+        particle.y += particle.vy * dt;
+        particle.size += 14 * dt;
+        if (particle.life <= 0) releaseLavaParticle(index);
+      }
+    }
+    for (const remote of state.remotePlayers.values()) {
+      const foot = remote.y + (remote.height || PLAYER_STANDING_HEIGHT);
+      const surface = lavaSurfaceY(remote.x + 15);
+      if (!remote.lavaWet && foot >= surface) {
+        remote.lavaWet = true;
+        bigLavaSplash(remote.x + 15, surface);
+        sound(95, 0.4, "sawtooth", 0.08);
+      } else if (remote.lavaWet && foot < surface - 170) {
+        remote.lavaWet = false;
+      }
+    }
+  }
+
+  function drawLava() {
+    const t = state.lavaTime;
+    const left = state.cameraX - 40;
+    const right = state.cameraX + VIEW.width + 40;
+    const bottomY = WORLD.height + 120 - state.cameraY;
+    const step = 26;
+
+    const path = new Path2D();
+    path.moveTo(left - state.cameraX, lavaSurfaceY(left) - state.cameraY);
+    for (let x = left + step; x <= right + step; x += step) {
+      path.lineTo(x - state.cameraX, lavaSurfaceY(x) - state.cameraY);
+    }
+    path.lineTo(right + step - state.cameraX, bottomY);
+    path.lineTo(left - state.cameraX, bottomY);
+    path.closePath();
+
+    const topY = LAVA_SURFACE_BASE_Y - 22 - state.cameraY;
+    const base = ctx.createLinearGradient(0, topY, 0, topY + 300);
+    base.addColorStop(0, "#ffb347");
+    base.addColorStop(0.14, "#ff7418");
+    base.addColorStop(0.5, "#e03a08");
+    base.addColorStop(1, "#701203");
+    ctx.fillStyle = base;
+    ctx.fill(path);
+
+    ctx.save();
+    ctx.clip(path);
+    const blobSpacing = 132;
+    for (let i = Math.floor(left / blobSpacing); i * blobSpacing < right; i += 1) {
+      const h1 = Math.abs(Math.sin(i * 56.13));
+      const h2 = Math.abs(Math.sin(i * 21.7 + 3));
+      const bx = i * blobSpacing + h1 * 70 + Math.sin(t * 0.16 + i) * 16 - state.cameraX;
+      const by = LAVA_SURFACE_BASE_Y + 55 + h2 * 150 - state.cameraY;
+      const br = 16 + h1 * 26;
+      ctx.fillStyle = i % 2 ? "rgba(96,12,4,.5)" : "rgba(255,150,60,.2)";
+      ctx.beginPath();
+      ctx.ellipse(bx, by, br, br * 0.62, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const particle of state.lavaParticles) {
+      if (particle.kind !== "bubble") continue;
+      const bx = particle.x - state.cameraX;
+      if (bx < -30 || bx > VIEW.width + 30) continue;
+      ctx.fillStyle = "rgba(255,190,90,.85)";
+      ctx.strokeStyle = "rgba(255,224,130,.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(bx, particle.y - state.cameraY, particle.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    const cellSpacing = 64;
+    ctx.lineWidth = 2.4;
+    for (let i = Math.floor(left / cellSpacing); i * cellSpacing < right; i += 1) {
+      const h = Math.abs(Math.sin(i * 12.9898));
+      const worldX = i * cellSpacing + h * 22;
+      const cx = worldX + Math.sin(t * 0.4 + i * 1.7) * 9 - state.cameraX;
+      if (cx < -40 || cx > VIEW.width + 40) continue;
+      const cy = lavaSurfaceY(worldX) + 5 - state.cameraY;
+      const rx = 20 + h * 10 + Math.sin(t * 0.9 + i) * 3;
+      const ry = 8 + h * 4 + Math.sin(t * 1.1 + i * 2) * 1.6;
+      const alpha = Math.min(1, 0.72 + Math.sin(t * 1.3 + i * 2.4) * 0.22);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,140,42,${alpha.toFixed(3)})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,211,94,${Math.min(1, alpha + 0.2).toFixed(3)})`;
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(255,226,120,.95)";
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = state.lowPower ? 0 : 14;
+    ctx.shadowColor = "rgba(255,150,40,.9)";
+    ctx.stroke(path);
+    ctx.shadowBlur = 0;
+
+    const glowAlpha = 0.15 + Math.sin(t * 2.1) * 0.05;
+    const glow = ctx.createLinearGradient(0, LAVA_SURFACE_BASE_Y - 140 - state.cameraY, 0, LAVA_SURFACE_BASE_Y - state.cameraY);
+    glow.addColorStop(0, "rgba(255,120,30,0)");
+    glow.addColorStop(1, `rgba(255,130,35,${glowAlpha.toFixed(3)})`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, LAVA_SURFACE_BASE_Y - 140 - state.cameraY, VIEW.width, 140);
+
+    for (const particle of state.lavaParticles) {
+      if (particle.kind === "bubble") continue;
+      const px = particle.x - state.cameraX;
+      if (px < -40 || px > VIEW.width + 40) continue;
+      const py = particle.y - state.cameraY;
+      const lifeRatio = Math.max(0, particle.life / (particle.maxLife || 1));
+      ctx.globalAlpha = lifeRatio;
+      if (particle.kind === "splash") {
+        ctx.fillStyle = particle.color;
+        ctx.beginPath();
+        ctx.arc(px, py, particle.size, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (particle.kind === "ember") {
+        ctx.fillStyle = "#ffd35e";
+        ctx.shadowBlur = state.lowPower ? 0 : 8;
+        ctx.shadowColor = "#ff9a2a";
+        ctx.beginPath();
+        ctx.arc(px, py, particle.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillStyle = `rgba(88,86,96,${(0.28 * lifeRatio).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(px, py, particle.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawLavaPlatformGlow() {
+    const pulse = 0.78 + Math.sin(state.lavaTime * 1.6) * 0.12;
+    for (const [x, y, width, height] of platforms()) {
+      if (x + width < state.cameraX - 40 || x > state.cameraX + VIEW.width + 40) continue;
+      const distance = Math.max(0, LAVA_SURFACE_BASE_Y - (y + height));
+      if (distance > 140) continue;
+      const strength = (1 - distance / 140) * pulse;
+      const py = y - state.cameraY;
+      const glowHeight = Math.min(height, 60);
+      const gradient = ctx.createLinearGradient(0, py + height - glowHeight, 0, py + height);
+      gradient.addColorStop(0, "rgba(255,120,30,0)");
+      gradient.addColorStop(1, `rgba(255,140,40,${(0.5 * strength).toFixed(3)})`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x - state.cameraX, py + height - glowHeight, width, glowHeight);
     }
   }
 
@@ -2238,7 +2530,9 @@
     const shakeY = state.screenShake ? (Math.random() - 0.5) * state.shake : 0;
     ctx.translate(shakeX, shakeY);
     drawBackground();
+    drawLava();
     for (const [index, platform] of platforms().entries()) drawPlatform(platform, index);
+    drawLavaPlatformGlow();
     for (const crate of state.crates) drawCrate(crate);
     drawGrapple(state.player);
     drawBullets();
@@ -2271,6 +2565,7 @@
     if (!state.lastTime) state.lastTime = time;
     const dt = Math.min(0.034, (time - state.lastTime) / 1000);
     state.lastTime = time;
+    state.lavaTime += dt;
     state.fpsClock += dt;
     state.frameCount += 1;
     if (state.fpsClock >= 0.55) {
