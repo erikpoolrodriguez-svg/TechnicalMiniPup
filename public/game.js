@@ -55,9 +55,8 @@
   };
   const maps = {
     "NEON DISTRICT": [
-      [0, 680, 210, 170], [290, 680, 210, 170], [580, 680, 210, 170],
-      [870, 680, 210, 170], [1160, 680, 210, 170], [1450, 680, 210, 170],
-      [1740, 680, 210, 170], [2030, 680, 170, 170],
+      [230, 660, 130, 22], [610, 660, 130, 22], [990, 660, 130, 22],
+      [1370, 660, 130, 22], [1750, 660, 130, 22], [2050, 660, 130, 22],
       [70, 590, 130, 22], [260, 530, 130, 22], [450, 590, 130, 22],
       [640, 530, 130, 22], [830, 590, 130, 22], [1020, 530, 130, 22],
       [1210, 590, 130, 22], [1400, 530, 130, 22], [1590, 590, 130, 22],
@@ -68,9 +67,8 @@
       [1875, 390, 130, 22],
     ],
     SKYLINE: [
-      [0, 670, 210, 180], [290, 680, 210, 170], [580, 670, 210, 180],
-      [870, 680, 210, 170], [1160, 670, 210, 180], [1450, 680, 210, 170],
-      [1740, 670, 210, 180], [2030, 680, 170, 170],
+      [220, 680, 130, 22], [600, 680, 130, 22], [980, 680, 130, 22],
+      [1360, 680, 130, 22], [1740, 680, 130, 22], [2050, 680, 130, 22],
       [90, 580, 130, 22], [280, 520, 130, 22], [470, 580, 130, 22],
       [660, 520, 130, 22], [850, 580, 130, 22], [1040, 520, 130, 22],
       [1230, 580, 130, 22], [1420, 520, 130, 22], [1610, 580, 130, 22],
@@ -81,9 +79,8 @@
       [1895, 380, 130, 22],
     ],
     "GRID ZERO": [
-      [0, 680, 210, 170], [290, 670, 210, 180], [580, 680, 210, 170],
-      [870, 670, 210, 180], [1160, 680, 210, 170], [1450, 670, 210, 180],
-      [1740, 680, 210, 170], [2030, 670, 170, 180],
+      [220, 680, 130, 22], [600, 680, 130, 22], [980, 680, 130, 22],
+      [1360, 680, 130, 22], [1740, 680, 130, 22], [2050, 680, 130, 22],
       [60, 600, 130, 22], [250, 540, 130, 22], [440, 600, 130, 22],
       [630, 540, 130, 22], [820, 600, 130, 22], [1010, 540, 130, 22],
       [1200, 600, 130, 22], [1390, 540, 130, 22], [1580, 600, 130, 22],
@@ -228,14 +225,14 @@
 
   function makePlayer() {
     const stats = classes[state.playerClass] || classes.RUNNER;
-    const spawnX = 300 + Math.random() * 100;
+    const spawn = randomSpawnPoint();
     return {
       id: state.socket?.id || "local-player",
       name: state.playerName,
       class: state.playerClass,
       color: state.color,
-      x: spawnX,
-      y: 400,
+      x: spawn.x,
+      y: spawn.y,
       vx: 0,
       vy: 0,
       width: 30,
@@ -276,13 +273,15 @@
   function makeBots() {
     const names = ["GHOST//07", "VANTA", "NEON_KID", "NULLBYTE"];
     const botColors = [colors.pink, colors.lime, colors.yellow, colors.violet];
-    return names.slice(0, 3).map((name, index) => ({
+    return names.slice(0, 3).map((name, index) => {
+      const spawn = randomSpawnPoint();
+      return {
       id: `bot-${index}`,
       name,
       class: ["SNIPER", "RUNNER", "TANK"][index],
       color: botColors[index],
-      x: 700 + index * 480,
-      y: 400,
+      x: spawn.x,
+      y: spawn.y,
       vx: 0,
       vy: 0,
       width: 30,
@@ -315,7 +314,8 @@
       dead: false,
       lastHitBy: null,
       lastHitAt: 0,
-    }));
+      };
+    });
   }
 
   function fitCanvas() {
@@ -359,6 +359,27 @@
 
   function platforms() {
     return maps[state.selectedMap] || maps["NEON DISTRICT"];
+  }
+
+  function randomSpawnPoint() {
+    const list = platforms();
+    const [x, y, width] = list[Math.floor(Math.random() * list.length)] || list[0];
+    return { x: x + width / 2 - 15, y: y - PLAYER_STANDING_HEIGHT - 2 };
+  }
+
+  function platformUnderOrNear(x) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const platform of platforms()) {
+      const [px, , width] = platform;
+      if (x >= px - 10 && x <= px + width + 10) return platform;
+      const distance = Math.min(Math.abs(x - px), Math.abs(x - (px + width)));
+      if (distance < bestDistance) {
+        best = platform;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   function nearestPlatform(x, fromY) {
@@ -1371,6 +1392,8 @@
         bot.aiJump = 0.7 + Math.random() * 0.6;
       }
       if (platform && !bot.grounded && Math.abs(deltaX) > 100 && needsClimb) move = direction;
+      if (!bot.grounded && bot.vy > 60 && bot.jumps < 2 &&
+          bot.y + bot.height > LAVA_SURFACE_BASE_Y - 200) jumpPressed = true;
       applyPhysics(bot, { move, jumpPressed, climb: needsClimb }, dt, false);
       bot.aim = Math.atan2(deltaY - 8, deltaX);
       bot.facing = Math.cos(bot.aim) >= 0 ? 1 : -1;
@@ -1585,8 +1608,9 @@
       pushFeed(cause === "lava" ? `${entity.name} CAYÓ EN LA LAVA` : `${entity.name} FUE ELIMINADO`, cause === "lava" ? "#ff8c2a" : colors.pink);
       setTimeout(() => {
         if (!state.active) return;
-        entity.x = 300 + Math.random() * 90;
-        entity.y = 320;
+        const spawn = randomSpawnPoint();
+        entity.x = spawn.x;
+        entity.y = spawn.y;
         entity.vx = 0;
         entity.vy = 0;
         entity.height = PLAYER_STANDING_HEIGHT;
@@ -1600,8 +1624,9 @@
       pushFeed(cause === "lava" ? `${entity.name} CAYÓ EN LA LAVA` : `${killerName} ELIMINÓ A ${entity.name}`, cause === "lava" ? "#ff8c2a" : state.player?.color || colors.cyan);
       setTimeout(() => {
         if (!state.active || !state.bots.includes(entity)) return;
-        entity.x = 550 + Math.random() * 1100;
-        entity.y = 300;
+        const spawn = randomSpawnPoint();
+        entity.x = spawn.x;
+        entity.y = spawn.y;
         entity.hp = entity.maxHp;
         entity.vx = 0;
         entity.vy = 0;
@@ -1627,7 +1652,7 @@
 
   function dropCrate() {
     const x = 180 + Math.random() * (WORLD.width - 360);
-    const platform = nearestPlatform(x, -20);
+    const platform = platformUnderOrNear(x);
     state.crates.push({
       id: `offline-${Math.random().toString(36).slice(2)}`,
       x, y: -60, targetY: platform ? platform[1] - 32 : 590,
@@ -1637,7 +1662,7 @@
   }
 
   function makeSyncedCrate(data) {
-    const platform = nearestPlatform(data.x, -20);
+    const platform = platformUnderOrNear(data.x);
     const targetY = platform ? platform[1] - 32 : 590;
     const age = Math.max(0, (Date.now() - Number(data.createdAt || Date.now())) / 1000);
     const y = Math.min(targetY, -60 + age * 90);
