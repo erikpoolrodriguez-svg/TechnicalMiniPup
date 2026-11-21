@@ -8,11 +8,7 @@
   const BOT_CEILING_Y = 90;
   const VIEW = { width: 1280, height: 720 };
   const PLAYER_STANDING_HEIGHT = 44;
-  const PLAYER_CROUCH_HEIGHT = 30;
-  const PLAYER_SLIDE_HEIGHT = 24;
-  const SLIDE_DURATION = 0.82;
-  const SLIDE_COOLDOWN = 0.28;
-  const SLIDE_MAX_SPEED = 620;
+  const JUMP_BUFFER = 0.14;
   const LAVA_SURFACE_BASE_Y = WORLD.height - 125;
   const LAVA_KILL_CREDIT_WINDOW = 5000;
   const colors = {
@@ -133,7 +129,10 @@
     feed: [],
     keys: new Set(),
     jumpQueued: false,
-    touchCrouchHeld: false,
+    jumpBuffer: 0,
+    canvasRect: null,
+    bgSky: null,
+    bgHaze: null,
     pointer: { x: 0, y: 0, down: false, rightDown: false, worldX: 0, worldY: 0 },
     touchMove: { x: 0, y: 0, active: false },
     touchAim: { x: 0, y: 0, active: false, fire: false },
@@ -245,12 +244,6 @@
       ammo: Infinity,
       weaponAmmo: { "PLASMA PISTOL": Infinity },
       grounded: false,
-      crouching: false,
-      sliding: false,
-      slideTime: 0,
-      slideCooldown: 0,
-      slideRequiresRelease: false,
-      crouchJumpLock: false,
       facing: 1,
       aim: 0,
       coyote: 0,
@@ -292,12 +285,6 @@
       streak: 0,
       weapon: index === 0 ? "CYBER RIFLE" : "PLASMA PISTOL",
       grounded: false,
-      crouching: false,
-      sliding: false,
-      slideTime: 0,
-      slideCooldown: 0,
-      slideRequiresRelease: false,
-      crouchJumpLock: false,
       facing: -1,
       aim: Math.PI,
       coyote: 0,
@@ -319,7 +306,8 @@
   }
 
   function fitCanvas() {
-    const rect = canvas.getBoundingClientRect();
+    state.canvasRect = canvas.getBoundingClientRect();
+    const rect = state.canvasRect;
     const cssWidth = Math.max(1, rect.width || window.innerWidth);
     const cssHeight = Math.max(1, rect.height || window.innerHeight);
     const compactViewport = cssWidth < 980;
@@ -340,6 +328,13 @@
     canvas.width = Math.round(cssWidth * state.dpr);
     canvas.height = Math.round(cssHeight * state.dpr);
     state.lowPower = compactViewport;
+  }
+
+  function cachedScreenToWorld(clientX, clientY) {
+    const rect = state.canvasRect || canvas.getBoundingClientRect();
+    const x = (clientX - rect.left - state.offsetX) / state.scale + state.cameraX;
+    const y = (clientY - rect.top - state.offsetY) / state.scale + state.cameraY;
+    return { x, y };
   }
 
   function screenToWorld(clientX, clientY) {
@@ -480,8 +475,6 @@
           height: remote.height || PLAYER_STANDING_HEIGHT,
           vx: remote.vx || 0,
           vy: remote.vy || 0,
-          crouching: Boolean(remote.crouching),
-          sliding: Boolean(remote.sliding),
           targetHeight: remote.height || PLAYER_STANDING_HEIGHT,
           anim: 0,
           squash: 1,
@@ -499,8 +492,6 @@
         height: remote.height || PLAYER_STANDING_HEIGHT,
         vx: remote.vx || 0,
         vy: remote.vy || 0,
-        crouching: Boolean(remote.crouching),
-        sliding: Boolean(remote.sliding),
         targetHeight: remote.height || PLAYER_STANDING_HEIGHT,
         anim: 0,
         squash: 1,
@@ -528,8 +519,6 @@
             height: remote.height || PLAYER_STANDING_HEIGHT,
             vx: remote.vx || 0,
             vy: remote.vy || 0,
-            crouching: Boolean(remote.crouching),
-            sliding: Boolean(remote.sliding),
             targetHeight: remote.height || PLAYER_STANDING_HEIGHT,
             anim: 0,
             squash: 1,
@@ -541,8 +530,6 @@
         current.targetHeight = Number.isFinite(remote.height) ? remote.height : PLAYER_STANDING_HEIGHT;
         current.vx = Number.isFinite(remote.vx) ? remote.vx : current.vx;
         current.vy = Number.isFinite(remote.vy) ? remote.vy : current.vy;
-        current.crouching = Boolean(remote.crouching);
-        current.sliding = Boolean(remote.sliding);
         current.facing = Number.isFinite(remote.facing) ? remote.facing : current.facing;
         current.targetAim = remote.aim;
         current.hp = remote.hp;
@@ -1062,58 +1049,13 @@
     return state.keys.has("w") || state.keys.has(" ") || state.keys.has("arrowup") || state.keys.has("jump");
   }
 
-  function crouchInput() {
-    return state.keys.has("s") || state.keys.has("arrowdown") || state.touchCrouchHeld ||
-      (state.touchMove.active && state.touchMove.y > 0.62);
-  }
-
   function sprintInput() {
     return state.keys.has("shift") ||
       (state.touchMove.active && Math.abs(state.touchMove.x) > 0.84);
   }
 
-  function resizePlayer(player, height) {
-    if (height > player.height) {
-      const bottom = player.y + player.height;
-      const top = bottom - height;
-      if (top < 0) return false;
-      for (const [x, y, width, platformHeight] of platforms()) {
-        const overlapsX = player.x + player.width > x + 2 && player.x < x + width - 2;
-        const overlapsY = top < y + platformHeight - 3 && bottom > y + 3;
-        if (overlapsX && overlapsY) return false;
-      }
-    }
-    const bottom = player.y + player.height;
-    player.y = bottom - height;
-    player.height = height;
-    return true;
-  }
-
-  function finishSlide(player) {
-    player.sliding = false;
-    player.slideTime = 0;
-    player.slideCooldown = Math.max(player.slideCooldown || 0, SLIDE_COOLDOWN);
-    player.slideRequiresRelease = true;
-  }
-
   function tryJump(player) {
     const stats = classes[player.class] || classes.RUNNER;
-    if (player.sliding) {
-      finishSlide(player);
-      player.slideCooldown = Math.max(player.slideCooldown, 0.18);
-      player.crouchJumpLock = true;
-      resizePlayer(player, PLAYER_STANDING_HEIGHT);
-      const direction = Math.sign(player.vx) || player.facing || 1;
-      player.vx = Math.max(-SLIDE_MAX_SPEED, Math.min(SLIDE_MAX_SPEED, player.vx + direction * 34));
-      player.vy = -stats.jump;
-      player.grounded = false;
-      player.coyote = 0;
-      player.jumps = 1;
-      player.jumpBoostTime = 0.13;
-      player.squash = 0.7;
-      sound(600, 0.12, "triangle");
-      return true;
-    }
     if (player.climbing) {
       player.climbing = false;
       player.vy = -stats.jump * 0.93 || -500;
@@ -1158,7 +1100,6 @@
     if (player.dead) return;
     const stats = classes[player.class] || classes.RUNNER;
     const move = Math.max(-1, Math.min(1, input.move || 0));
-    const crouchRequested = Boolean(input.crouch);
     const sprintRequested = Boolean(input.sprint) && move !== 0;
     const wasGrounded = player.grounded;
     const oldBottom = player.y + player.height;
@@ -1175,68 +1116,42 @@
       player.coyote = Math.max(0, player.coyote - dt);
     }
 
-    player.slideCooldown = Math.max(0, (player.slideCooldown || 0) - dt);
-    if (!crouchRequested) {
-      player.slideRequiresRelease = false;
-      player.crouchJumpLock = false;
-    }
-    if (player.sliding && (!crouchRequested || !wasGrounded)) finishSlide(player);
-    const slideCap = Math.min(SLIDE_MAX_SPEED, stats.speed * 1.62 + 45);
-    if (!player.sliding && crouchRequested && !player.slideRequiresRelease && !player.crouchJumpLock &&
-        player.slideCooldown <= 0 && wasGrounded && move !== 0 &&
-        Math.abs(player.vx) >= stats.speed * 0.58 && Math.sign(player.vx) === Math.sign(move)) {
-      const speed = Math.abs(player.vx);
-      player.vx = Math.sign(move) * Math.min(slideCap, Math.max(speed + 65, speed * 1.08));
-      player.sliding = true;
-      player.slideTime = SLIDE_DURATION;
-      player.crouching = true;
-      addParticle(player.x + player.width / 2, player.y + player.height - 3, player.color, 5, 105);
-    }
-
-    if (player.sliding) {
-      const progress = 1 - player.slideTime / SLIDE_DURATION;
-      if (move !== 0) {
-        const steering = Math.sign(move) === Math.sign(player.vx) ? 115 : 570;
-        player.vx += Math.sign(move) * steering * dt;
-      }
-      player.vx *= Math.exp(-(1.15 + progress * 2.15) * dt);
-      player.vx = Math.max(-slideCap, Math.min(slideCap, player.vx));
-      player.slideTime -= dt;
-      if (player.slideTime <= 0 || Math.abs(player.vx) < stats.speed * 0.34) finishSlide(player);
-    } else {
-      const stanceSpeed = player.crouching ? 0.55 : 1;
-      const targetSpeed = stats.speed * stanceSpeed * (sprintRequested ? 1.16 : 1) * move;
-      if (move) {
-        const sameDirection = Math.sign(player.vx) === Math.sign(move);
-        if (sameDirection && Math.abs(player.vx) > Math.abs(targetSpeed)) {
-          const easing = player.grounded ? 220 : 130;
-          player.vx -= Math.sign(player.vx) *
-            Math.min(Math.abs(player.vx) - Math.abs(targetSpeed), easing * dt);
-        } else {
-          const acceleration = player.grounded ? (player.crouching ? 1550 : 2100) : 650;
-          player.vx += Math.sign(targetSpeed - player.vx) *
-            Math.min(Math.abs(targetSpeed - player.vx), acceleration * dt);
-        }
+    const targetSpeed = stats.speed * (sprintRequested ? 1.16 : 1) * move;
+    if (move) {
+      const sameDirection = Math.sign(player.vx) === Math.sign(move);
+      if (sameDirection && Math.abs(player.vx) > Math.abs(targetSpeed)) {
+        const easing = player.grounded ? 220 : 130;
+        player.vx -= Math.sign(player.vx) *
+          Math.min(Math.abs(player.vx) - Math.abs(targetSpeed), easing * dt);
       } else {
-        player.vx *= Math.pow(player.grounded ? (player.crouching ? 0.055 : 0.12) : 0.38, dt);
+        const acceleration = player.grounded ? 2100 : 650;
+        player.vx += Math.sign(targetSpeed - player.vx) *
+          Math.min(Math.abs(targetSpeed - player.vx), acceleration * dt);
       }
-      const horizontalCap = Math.min(SLIDE_MAX_SPEED, stats.speed * 1.8);
-      player.vx = Math.max(-horizontalCap, Math.min(horizontalCap, player.vx));
-      if (Math.abs(player.vx) < 2) player.vx = 0;
+    } else {
+      player.vx *= Math.pow(player.grounded ? 0.12 : 0.38, dt);
     }
+    const horizontalCap = stats.speed * 1.5;
+    player.vx = Math.max(-horizontalCap, Math.min(horizontalCap, player.vx));
+    if (Math.abs(player.vx) < 2) player.vx = 0;
     if (move) player.facing = move > 0 ? 1 : -1;
 
-    if (input.jumpPressed) tryJump(player);
+    if (input.jumpPressed) state.jumpBuffer = JUMP_BUFFER;
+    if (player.grounded || player.coyote > 0) {
+      if (state.jumpBuffer > 0) {
+        state.jumpBuffer = 0;
+        tryJump(player);
+      }
+    } else {
+      state.jumpBuffer = Math.max(0, state.jumpBuffer - dt);
+      if (input.jumpPressed) tryJump(player);
+    }
     if (player.jumpBoostTime > 0) {
       if (isPlayer && jumpInput() && player.vy < 0 && !player.climbing) {
         player.vy = Math.max(-650, player.vy - 460 * dt);
       }
       player.jumpBoostTime = Math.max(0, player.jumpBoostTime - dt);
     }
-
-    const wantsCrouch = crouchRequested && !player.crouchJumpLock;
-    resizePlayer(player, player.sliding ? PLAYER_SLIDE_HEIGHT : wantsCrouch ? PLAYER_CROUCH_HEIGHT : PLAYER_STANDING_HEIGHT);
-    player.crouching = player.sliding || player.height < PLAYER_STANDING_HEIGHT;
 
     if (!player.grounded && Math.abs(player.vy) > 40 && (move || (isPlayer && state.touchMove.y < -0.35))) {
       const climbDirection = isPlayer && state.touchMove.y < -0.35 ? player.facing : move;
@@ -1590,12 +1505,6 @@
     entity.streak = 0;
     addParticle(entity.x + entity.width / 2, entity.y + entity.height / 2, entity.color, 24, 300);
     entity.height = PLAYER_STANDING_HEIGHT;
-    entity.crouching = false;
-    entity.sliding = false;
-    entity.slideTime = 0;
-    entity.slideCooldown = 0;
-    entity.slideRequiresRelease = false;
-    entity.crouchJumpLock = false;
     entity.grounded = false;
     entity.coyote = 0;
     entity.jumps = 0;
@@ -1773,9 +1682,7 @@
         y: player.y,
         vx: player.vx,
         vy: player.vy,
-        height: player.height,
-        crouching: player.crouching,
-        sliding: player.sliding,
+        height: PLAYER_STANDING_HEIGHT,
         facing: player.facing,
         aim: player.aim,
         hp: player.hp,
@@ -1789,7 +1696,7 @@
     if (!state.active || state.paused) return;
     const player = state.player;
     if (!player) return;
-    const mouse = screenToWorld(state.pointer.x, state.pointer.y);
+    const mouse = cachedScreenToWorld(state.pointer.x, state.pointer.y);
     state.pointer.worldX = mouse.x;
     state.pointer.worldY = mouse.y;
     let aimX = mouse.x - player.x - player.width / 2;
@@ -1811,7 +1718,7 @@
     state.jumpQueued = false;
     applyPhysics(player, {
       move: moveInput(),
-      crouch: crouchInput(),
+      crouch: false,
       sprint: sprintInput(),
       jumpPressed,
       grappleReleased: state.keys.has("grapple-release"),
@@ -1839,21 +1746,27 @@
     }
   }
 
-  function drawBackground() {
+  function buildBackgroundGradients() {
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW.height);
     sky.addColorStop(0, "#081426");
     sky.addColorStop(0.52, "#161936");
     sky.addColorStop(1, "#572b45");
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, VIEW.width, VIEW.height);
-
-    ctx.save();
-    ctx.globalAlpha = 0.65;
+    state.bgSky = sky;
     const haze = ctx.createRadialGradient(640, 500, 20, 640, 500, 620);
     haze.addColorStop(0, "rgba(255,104,72,.56)");
     haze.addColorStop(0.45, "rgba(202,58,128,.14)");
     haze.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = haze;
+    state.bgHaze = haze;
+  }
+
+  function drawBackground() {
+    if (!state.bgSky) buildBackgroundGradients();
+    ctx.fillStyle = state.bgSky;
+    ctx.fillRect(0, 0, VIEW.width, VIEW.height);
+
+    ctx.save();
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = state.bgHaze;
     ctx.fillRect(0, 120, VIEW.width, VIEW.height - 120);
     ctx.restore();
 
@@ -2297,8 +2210,7 @@
     if (character.invulnerable > 0 && Math.floor(performance.now() / 100) % 2 === 0) ctx.globalAlpha = 0.55;
     ctx.translate(x + character.width / 2, y + character.height / 2);
     const squash = character.squash || 1;
-    const poseScaleY = character.sliding ? 0.58 : character.crouching ? 0.74 : 1;
-    ctx.scale((character.sliding ? 1.12 : 1) * squash, poseScaleY * (2 - squash));
+    ctx.scale(squash, (2 - squash));
     ctx.rotate(lean);
     ctx.shadowBlur = isPlayer ? 20 : 12;
     ctx.shadowColor = character.color || colors.cyan;
@@ -2598,10 +2510,12 @@
       state.frameCount = 0;
       state.fpsClock = 0;
     }
-    const canvasRect = canvas.getBoundingClientRect();
-    if (!document.hidden && canvasRect.width > 0 && canvasRect.height > 0) {
-      update(dt);
-      draw();
+    if (!document.hidden) {
+      updateCanvasRect();
+      if (state.canvasRect.width > 0 && state.canvasRect.height > 0) {
+        update(dt);
+        draw();
+      }
     }
     requestAnimationFrame(frame);
   }
@@ -2823,10 +2737,15 @@
   });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
+  function updateCanvasRect() {
+    state.canvasRect = canvas.getBoundingClientRect();
+  }
+
   function touchStart(event) {
     if (!state.active || state.touchLayoutEditing) return;
+    updateCanvasRect();
+    const rect = state.canvasRect;
     for (const touch of event.changedTouches) {
-      const rect = canvas.getBoundingClientRect();
       const x = touch.clientX - rect.left;
       const y = touch.clientY - rect.top;
       if (x < rect.width * 0.46 && y > rect.height * 0.48) {
@@ -2859,14 +2778,14 @@
   }
 
   function touchMove(event) {
+    const rect = state.canvasRect || canvas.getBoundingClientRect();
     for (const touch of event.changedTouches) {
       const kind = state.touchIds.get(touch.identifier);
       if (kind === "move") {
-        const dx = touch.clientX - canvas.getBoundingClientRect().left - state.touchMove.originX;
+        const dx = touch.clientX - rect.left - state.touchMove.originX;
         state.touchMove.x = Math.max(-1, Math.min(1, dx / 54));
-        state.touchMove.y = Math.max(-1, Math.min(1, (touch.clientY - canvas.getBoundingClientRect().top - state.touchMove.originY) / 54));
+        state.touchMove.y = Math.max(-1, Math.min(1, (touch.clientY - rect.top - state.touchMove.originY) / 54));
       } else if (kind === "aim") {
-        const rect = canvas.getBoundingClientRect();
         const dx = touch.clientX - rect.left - state.touchAim.originX;
         const dy = touch.clientY - rect.top - state.touchAim.originY;
         const distance = Math.hypot(dx, dy);
@@ -2881,8 +2800,8 @@
   function touchEnd(event) {
     for (const touch of event.changedTouches) {
       const kind = state.touchIds.get(touch.identifier);
-      if (kind === "move") state.touchMove = { x: 0, y: 0, active: false };
-      if (kind === "aim") state.touchAim = { x: 0, y: 0, active: false, fire: false };
+      if (kind === "move" || state.touchMove.active) state.touchMove = { x: 0, y: 0, active: false };
+      if (kind === "aim" || state.touchAim.active) state.touchAim = { x: 0, y: 0, active: false, fire: false };
       if (kind === "jump") state.keys.delete("jump");
       if (kind === "grapple" && state.player) state.player.grapple = null;
       state.touchIds.delete(touch.identifier);
