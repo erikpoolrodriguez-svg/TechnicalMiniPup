@@ -797,7 +797,6 @@ body[data-control="auto"] .touch-layout-trigger { display: none; }
 #touch-aim-stick { left: calc(100% - max(60px, env(safe-area-inset-right) + 60px)); top: calc(100% - max(60px, env(safe-area-inset-bottom) + 60px)); }
 #touch-grapple { left: calc(100% - max(84px, env(safe-area-inset-right) + 84px)); top: calc(100% - max(148px, env(safe-area-inset-bottom) + 148px)); }
 #touch-jump { left: calc(100% - max(148px, env(safe-area-inset-right) + 148px)); top: calc(100% - max(48px, env(safe-area-inset-bottom) + 48px)); }
-#touch-crouch { left: max(145px, calc(env(safe-area-inset-left) + 145px)); top: calc(100% - max(146px, env(safe-area-inset-bottom) + 146px)); }
 .mobile-stick::before {
   width: 28px;
   height: 28px;

@@ -1136,15 +1136,19 @@
     if (Math.abs(player.vx) < 2) player.vx = 0;
     if (move) player.facing = move > 0 ? 1 : -1;
 
-    if (input.jumpPressed) state.jumpBuffer = JUMP_BUFFER;
-    if (player.grounded || player.coyote > 0) {
-      if (state.jumpBuffer > 0) {
-        state.jumpBuffer = 0;
-        tryJump(player);
+    if (isPlayer) {
+      if (input.jumpPressed) state.jumpBuffer = JUMP_BUFFER;
+      if (player.grounded || player.coyote > 0) {
+        if (state.jumpBuffer > 0) {
+          state.jumpBuffer = 0;
+          tryJump(player);
+        }
+      } else {
+        state.jumpBuffer = Math.max(0, state.jumpBuffer - dt);
+        if (input.jumpPressed) tryJump(player);
       }
-    } else {
-      state.jumpBuffer = Math.max(0, state.jumpBuffer - dt);
-      if (input.jumpPressed) tryJump(player);
+    } else if (input.jumpPressed) {
+      tryJump(player);
     }
     if (player.jumpBoostTime > 0) {
       if (isPlayer && jumpInput() && player.vy < 0 && !player.climbing) {
@@ -1718,7 +1722,6 @@
     state.jumpQueued = false;
     applyPhysics(player, {
       move: moveInput(),
-      crouch: false,
       sprint: sprintInput(),
       jumpPressed,
       grappleReleased: state.keys.has("grapple-release"),
@@ -2878,22 +2881,6 @@
   jumpButton?.addEventListener("pointerup", releaseJump);
   jumpButton?.addEventListener("pointercancel", releaseJump);
   jumpButton?.addEventListener("lostpointercapture", releaseJump);
-
-  const crouchButton = findElement("#touch-crouch");
-  const releaseCrouch = () => {
-    state.touchCrouchHeld = false;
-    crouchButton?.classList.remove("is-active");
-  };
-  crouchButton?.addEventListener("pointerdown", (event) => {
-    if (state.touchLayoutEditing) return;
-    event.preventDefault();
-    crouchButton.setPointerCapture(event.pointerId);
-    state.touchCrouchHeld = true;
-    crouchButton.classList.add("is-active");
-  });
-  crouchButton?.addEventListener("pointerup", releaseCrouch);
-  crouchButton?.addEventListener("pointercancel", releaseCrouch);
-  crouchButton?.addEventListener("lostpointercapture", releaseCrouch);
 
   const grappleButton = findElement("#touch-grapple");
   grappleButton?.addEventListener("pointerdown", (event) => {
