@@ -8,9 +8,29 @@
   const BOT_CEILING_Y = 90;
   const VIEW = { width: 1280, height: 720 };
   const PLAYER_STANDING_HEIGHT = 44;
+  const PLAYER_CROUCH_HEIGHT = 26;
+  const PLAYER_SLIDE_HEIGHT = 22;
+  const SLIDE_DURATION = 0.6;
+  const SLIDE_COOLDOWN = 0.5;
+  const SLIDE_MAX_SPEED = 560;
   const JUMP_BUFFER = 0.14;
   const LAVA_SURFACE_BASE_Y = WORLD.height - 125;
   const LAVA_KILL_CREDIT_WINDOW = 5000;
+  const DEFAULT_BINDINGS = {
+    left: "KeyA", right: "KeyD", jump: "Space", sprint: "ShiftLeft",
+    crouch: "ControlLeft", fire: "Mouse0", grapple: "Mouse2",
+    pause: "Escape", scoreboard: "Tab",
+  };
+  const BINDING_LABELS = {
+    left: "Mover izquierda", right: "Mover derecha", jump: "Saltar",
+    sprint: "Correr", crouch: "Agacharse / deslizarse", fire: "Disparar",
+    grapple: "Gancho", pause: "Pausa", scoreboard: "Marcador",
+  };
+  const MUSIC = {
+    bpm: 112,
+    chords: [[57, 60, 64], [53, 57, 60], [60, 64, 67], [55, 59, 62]],
+    roots: [45, 41, 48, 43],
+  };
   const colors = {
     cyan: "#00f3ff",
     pink: "#ff2a85",
@@ -154,6 +174,12 @@
     roomCheckTimer: 0,
     sensitivity: 1.16,
     returnAfterOptions: null,
+    touchCrouchHeld: false,
+    soundEnabled: true,
+    music: { enabled: true, volume: 0.6, playing: false, timer: 0, step: 0, nextTime: 0, gain: null, noise: null },
+    bindings: { ...DEFAULT_BINDINGS },
+    awaitingKey: null,
+    pendingConflict: null,
   };
 
   function emit(name, detail = {}) {
@@ -177,9 +203,12 @@
     const screenName = name === "playing" ? "game" : name === "paused" ? "pause" : name;
     document.body.dataset.screen = screenName;
     document.querySelectorAll("[data-screen]").forEach((element) => {
+      if (element.dataset.persistent !== undefined) return;
       element.hidden = element.dataset.screen !== screenName;
     });
     if (screenName === "game") requestAnimationFrame(fitCanvas);
+    updateMusicForScreen(screenName);
+    if (screenName !== "game" && !state.active) initDemo();
     emit("screen", { name: screenName });
   }
 
@@ -244,6 +273,10 @@
       ammo: Infinity,
       weaponAmmo: { "PLASMA PISTOL": Infinity },
       grounded: false,
+      crouching: false,
+      sliding: false,
+      slideTime: 0,
+      slideCooldown: 0,
       facing: 1,
       aim: 0,
       coyote: 0,
@@ -285,6 +318,10 @@
       streak: 0,
       weapon: index === 0 ? "CYBER RIFLE" : "PLASMA PISTOL",
       grounded: false,
+      crouching: false,
+      sliding: false,
+      slideTime: 0,
+      slideCooldown: 0,
       facing: -1,
       aim: Math.PI,
       coyote: 0,
@@ -353,6 +390,7 @@
   }
 
   function platforms() {
+    if (!state.active && state.demo) return maps[state.demo.map] || maps["NEON DISTRICT"];
     return maps[state.selectedMap] || maps["NEON DISTRICT"];
   }
 
@@ -689,6 +727,16 @@
     state.paused = typeof force === "boolean" ? force : !state.paused;
     showScreen(state.paused ? "paused" : "playing");
     if (!state.paused) state.lastTime = performance.now();
+    if (state.paused && state.player) {
+      const entries = [state.player, ...state.bots, ...state.remotePlayers.values()].filter(Boolean);
+      const rank = entries.filter((item) => (item.score || 0) > (state.player.score || 0)).length + 1;
+      updateText(["#pause-placement"], `${rank}.º de ${entries.length}`);
+      updateText(["#pause-kills"], state.player.score || 0);
+      updateText(["#pause-deaths"], state.deaths);
+      const minutes = String(Math.floor(state.gameElapsed / 60)).padStart(2, "0");
+      const seconds = String(Math.floor(state.gameElapsed % 60)).padStart(2, "0");
+      updateText(["#pause-time"], `${minutes}:${seconds}`);
+    }
     emit("pause", { paused: state.paused });
   }
 
@@ -708,11 +756,23 @@
   function setOption(name, value) {
     if (name === "controlMode") state.controlMode = value;
     if (name === "volume") state.soundVolume = Number(value) / 100;
+    if (name === "soundEnabled") state.soundEnabled = Boolean(value);
     if (name === "screenShake") state.screenShake = Boolean(value);
     if (name === "advancedParticles") state.advancedParticles = Boolean(value);
     if (name === "showStats") state.showStats = Boolean(value);
     if (name === "sensitivity") state.sensitivity = Math.max(0.25, Math.min(2, Number(value) / 50));
     if (name === "controlMode") document.body.dataset.control = value;
+    if (name === "musicEnabled") {
+      state.music.enabled = Boolean(value);
+      if (!state.music.enabled) stopMusic(0.4);
+      else updateMusicForScreen(document.body.dataset.screen);
+    }
+    if (name === "musicVolume") {
+      state.music.volume = Math.max(0, Math.min(1, Number(value) / 100));
+      if (state.music.gain && state.music.playing && state.audio) {
+        state.music.gain.gain.setTargetAtTime(Math.max(0.0001, state.music.volume), state.audio.currentTime, 0.05);
+      }
+    }
   }
 
   function handleAction(target) {
@@ -911,7 +971,7 @@
   });
 
   function sound(frequency, duration, wave = "sine", gain = 0.12) {
-    if (state.soundVolume <= 0) return;
+    if (!state.soundEnabled || state.soundVolume <= 0) return;
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
@@ -931,6 +991,423 @@
     } catch (_error) {
       // Audio is optional; gameplay continues when the browser blocks sound.
     }
+  }
+
+  function ensureAudio() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return null;
+      state.audio ||= new AudioContext();
+      if (state.audio.state === "suspended") state.audio.resume();
+      return state.audio;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function uiSound(kind) {
+    if (!state.soundEnabled || state.soundVolume <= 0) return;
+    const audio = ensureAudio();
+    if (!audio) return;
+    const now = audio.currentTime;
+    if (kind === "hover") {
+      if (now - (state.lastHoverAt || 0) < 0.07) return;
+      state.lastHoverAt = now;
+    }
+    if (now - (state.lastUiAt || 0) < 0.03) return;
+    state.lastUiAt = now;
+    const presets = {
+      hover: { frequency: 740, duration: 0.05, wave: "sine", gain: 0.035 },
+      click: { frequency: 420, duration: 0.07, wave: "triangle", gain: 0.09 },
+      back: { frequency: 300, duration: 0.1, wave: "triangle", gain: 0.09 },
+      confirm: { frequency: 620, duration: 0.12, wave: "triangle", gain: 0.1 },
+    };
+    const preset = presets[kind] || presets.click;
+    sound(preset.frequency, preset.duration, preset.wave, preset.gain);
+  }
+
+  function updateMusicForScreen(screenName) {
+    const inMenu = screenName === "menu" || screenName === "lobby" || screenName === "characters" || screenName === "options";
+    if (!state.music.enabled || !inMenu) stopMusic(0.9);
+    else startMusic();
+  }
+
+  function startMusic() {
+    if (!state.music.enabled) return;
+    const audio = ensureAudio();
+    if (!audio || state.music.playing) return;
+    state.music.playing = true;
+    state.music.gain = audio.createGain();
+    state.music.gain.gain.setValueAtTime(0.0001, audio.currentTime);
+    state.music.gain.gain.setTargetAtTime(Math.max(0.0001, state.music.volume), audio.currentTime, 0.7);
+    state.music.noise = audio.createBufferSource();
+    const buffer = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+    state.music.noise.buffer = buffer;
+    state.music.noise.loop = true;
+    state.music.nextTime = audio.currentTime + 0.1;
+    state.music.step = 0;
+    state.music.noise.start();
+    scheduleMusic();
+  }
+
+  function stopMusic(fade = 0.5) {
+    const audio = state.audio;
+    if (!state.music.playing) return;
+    state.music.playing = false;
+    clearTimeout(state.music.timer);
+    if (!audio || !state.music.gain) return;
+    state.music.gain.gain.setTargetAtTime(0.0001, audio.currentTime, fade / 3);
+    const noise = state.music.noise;
+    const gain = state.music.gain;
+    setTimeout(() => {
+      try { noise?.stop(); } catch (_error) {}
+      try { gain.disconnect(); } catch (_error) {}
+    }, fade * 1000 + 200);
+    state.music.noise = null;
+    state.music.gain = null;
+  }
+
+  function musicVoice(type, frequency, at, duration, gainValue, destination) {
+    const audio = state.audio;
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, at);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.linearRampToValueAtTime(gainValue, at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+    oscillator.connect(gain);
+    gain.connect(destination);
+    oscillator.start(at);
+    oscillator.stop(at + duration + 0.05);
+  }
+
+  function scheduleMusic() {
+    if (!state.music.playing) return;
+    const audio = state.audio;
+    if (!audio || !state.music.gain) return;
+    const stepDuration = 60 / MUSIC.bpm / 2;
+    while (state.music.nextTime < audio.currentTime + 1.2) {
+      const step = state.music.step;
+      const bar = Math.floor(step / 8) % MUSIC.chords.length;
+      const chord = MUSIC.chords[bar];
+      const at = state.music.nextTime;
+      if (step % 8 === 0) {
+        musicVoice("sawtooth", midiToFrequency(MUSIC.roots[bar] - 12), at, stepDuration * 7.4, 0.16, state.music.gain);
+      }
+      if (step % 2 === 0) {
+        const note = chord[(step / 2) % chord.length];
+        musicVoice("square", midiToFrequency(note + 12), at, stepDuration * 0.9, 0.028, state.music.gain);
+      }
+      if (step % 4 === 0) {
+        musicVoice("sine", 72, at, 0.13, 0.22, state.music.gain);
+      } else if (step % 4 === 2) {
+        musicVoice("triangle", 240, at, 0.07, 0.06, state.music.gain);
+      }
+      state.music.nextTime += stepDuration;
+      state.music.step = step + 1;
+    }
+    state.music.timer = setTimeout(scheduleMusic, 250);
+  }
+
+  function midiToFrequency(note) {
+    return 440 * Math.pow(2, (note - 69) / 12);
+  }
+
+  // ---- Demo match behind the main menu (decorative, reuses the engine) ----
+  function initDemo() {
+    if (state.active || state.demo) return;
+    const previousMap = state.selectedMap;
+    state.demo = {
+      cameraX: 0,
+      cameraY: 0,
+      targetX: 0,
+      waitTimer: 0,
+      player: null,
+      bots: [],
+      bullets: [],
+    };
+    state.selectedMap = ["NEON DISTRICT", "SKYLINE", "GRID ZERO"][Math.floor(Math.random() * 3)];
+    const center = { x: WORLD.width / 2 - 15, y: 300 };
+    state.demo.player = {
+      ...buildDemoFighter("SPECTER-9", "RUNNER", colors.cyan, center),
+      weapon: "CYBER RIFLE",
+    };
+    state.demo.bots = ["VANTA", "NULLBYTE", "KARMA//77"].map((name, index) => ({
+      ...buildDemoFighter(name, ["SNIPER", "TANK", "RUNNER"][index], [colors.pink, colors.yellow, colors.lime][index], randomSpawnPoint()),
+      weapon: index === 1 ? "NEON SHOTGUN" : "PLASMA PISTOL",
+    }));
+    state.selectedMap = previousMap;
+  }
+
+  function buildDemoFighter(name, playerClass, color, spawn) {
+    const stats = classes[playerClass] || classes.RUNNER;
+    return {
+      name,
+      class: playerClass,
+      color,
+      x: spawn.x,
+      y: spawn.y,
+      vx: 0,
+      vy: 0,
+      width: 30,
+      height: PLAYER_STANDING_HEIGHT,
+      hp: stats.hp,
+      maxHp: stats.hp,
+      score: 0,
+      streak: 0,
+      grounded: false,
+      crouching: false,
+      sliding: false,
+      slideTime: 0,
+      slideCooldown: 0,
+      facing: -1,
+      aim: Math.PI,
+      coyote: 0,
+      jumps: 0,
+      jumpBoostTime: 0,
+      climbing: false,
+      climbStamina: stats.stamina,
+      fatigued: false,
+      grapple: null,
+      shotCooldown: 0.4 + Math.random(),
+      invulnerable: 0,
+      squash: 1,
+      anim: Math.random() * 5,
+      aiJump: Math.random() * 2,
+      dead: false,
+      lastHitBy: null,
+      lastHitAt: 0,
+      demoRespawn: 0,
+    };
+  }
+
+  function updateDemo(dt) {
+    if (!state.demo || state.active) return;
+    const demo = state.demo;
+    state.gameElapsed += dt * 0;
+    const fighters = [demo.player, ...demo.bots];
+    for (const fighter of fighters) {
+      if (fighter.dead) {
+        fighter.demoRespawn -= dt;
+        if (fighter.demoRespawn <= 0) {
+          const spawn = randomSpawnPoint();
+          fighter.x = spawn.x;
+          fighter.y = spawn.y;
+          fighter.vx = 0;
+          fighter.vy = 0;
+          fighter.hp = fighter.maxHp;
+          fighter.dead = false;
+          fighter.height = PLAYER_STANDING_HEIGHT;
+          fighter.invulnerable = 1;
+          fighter.demoRespawn = 0;
+        }
+        continue;
+      }
+      const rivals = fighters.filter((candidate) => candidate !== fighter && !candidate.dead);
+      const target = rivals[Math.floor(Math.random() * rivals.length)] || demo.player;
+      const deltaX = target.x - fighter.x;
+      const deltaY = target.y - fighter.y;
+      const distance = Math.hypot(deltaX, deltaY);
+      const direction = Math.sign(deltaX) || 1;
+      let move = distance > 420 ? direction : distance > 160 ? direction * 0.4 : -direction * 0.4;
+      if (fighter.x < 120) move = 1;
+      if (fighter.x > WORLD.width - 120) move = -1;
+      fighter.aiJump -= dt;
+      let jumpPressed = false;
+      if (fighter.grounded && fighter.aiJump < 0) {
+        jumpPressed = true;
+        fighter.aiJump = 1 + Math.random() * 1.6;
+      }
+      if (!fighter.grounded && fighter.vy > 60 && fighter.jumps < 2 &&
+          fighter.y + fighter.height > LAVA_SURFACE_BASE_Y - 190) jumpPressed = true;
+      applyPhysics(fighter, { move, jumpPressed, climb: deltaY < -140 }, dt, false);
+      fighter.aim = Math.atan2(deltaY - 6, deltaX);
+      fighter.facing = Math.cos(fighter.aim) >= 0 ? 1 : -1;
+      fighter.shotCooldown -= dt;
+      if (distance < 620 && fighter.shotCooldown <= 0) {
+        if (Math.random() < 0.8) demoFire(fighter);
+        fighter.shotCooldown = fighter.class === "SNIPER" ? 1.2 : 0.7 + Math.random() * 0.5;
+      }
+      if (fighter.y + fighter.height >= lavaSurfaceY(fighter.x + 15)) {
+        fighter.hp = 0;
+        bigLavaSplash(fighter.x + 15, lavaSurfaceY(fighter.x + 15));
+        fighter.dead = true;
+        fighter.demoRespawn = 2.2;
+      }
+    }
+    updateDemoBullets(dt);
+    demo.waitTimer -= dt;
+    if (demo.waitTimer <= 0) {
+      demo.targetX = Math.max(0, Math.min(WORLD.width - VIEW.width, (demo.player.x + demo.bots[0]?.x || WORLD.width / 2) / 2 - VIEW.width / 2));
+      demo.waitTimer = 4 + Math.random() * 4;
+    }
+    demo.cameraX += (demo.targetX - demo.cameraX) * Math.min(1, dt * 0.7);
+    demo.cameraY = (WORLD.height - VIEW.height) * 0.72;
+    state.cameraX = demo.cameraX;
+    state.cameraY = demo.cameraY;
+    updateLava(dt);
+    updateParticles(dt);
+  }
+
+  function demoFire(fighter) {
+    const weapon = weapons[fighter.weapon] || weapons["PLASMA PISTOL"];
+    const muzzleX = fighter.x + fighter.width / 2 + Math.cos(fighter.aim) * 26;
+    const muzzleY = fighter.y + fighter.height * 0.42 + Math.sin(fighter.aim) * 20;
+    for (let index = 0; index < weapon.count; index += 1) {
+      const spread = weapon.count === 1 ? (Math.random() - 0.5) * weapon.spread : (index - (weapon.count - 1) / 2) * weapon.spread * 0.5;
+      const angle = fighter.aim + spread;
+      state.bullets.push({
+        x: muzzleX, y: muzzleY, vx: Math.cos(angle) * weapon.speed, vy: Math.sin(angle) * weapon.speed,
+        owner: `demo-${fighter.name}`, faction: "demo", color: weapon.color, damage: 0, life: 1.4, weapon: fighter.weapon,
+      });
+    }
+    addParticle(muzzleX, muzzleY, weapon.color, 3, 70);
+  }
+
+  function updateDemoBullets(dt) {
+    for (let index = state.bullets.length - 1; index >= 0; index -= 1) {
+      const bullet = state.bullets[index];
+      const previousX = bullet.x;
+      const previousY = bullet.y;
+      bullet.x += bullet.vx * dt;
+      bullet.y += bullet.vy * dt;
+      bullet.life -= dt;
+      let hit = bullet.life <= 0 || bullet.x < 0 || bullet.x > WORLD.width || bullet.y < 0 || bullet.y > WORLD.height;
+      if (!hit) {
+        for (const [x, y, width, height] of platforms()) {
+          if (segmentHitsRect(previousX, previousY, bullet.x, bullet.y, x - 2, y - 2, x + width + 2, y + height + 2)) {
+            hit = true;
+            addParticle(bullet.x, bullet.y, bullet.color, 3, 80);
+            break;
+          }
+        }
+      }
+      if (!hit) {
+        for (const fighter of [state.demo?.player, ...(state.demo?.bots || [])]) {
+          if (!fighter || fighter.dead || bullet.owner === `demo-${fighter.name}`) continue;
+          if (segmentHitsRect(previousX, previousY, bullet.x, bullet.y, fighter.x - 2, fighter.y - 2, fighter.x + fighter.width + 2, fighter.y + fighter.height + 2)) {
+            fighter.hp = Math.max(0, fighter.hp - 9);
+            addParticle(bullet.x, bullet.y, bullet.color, 6, 130);
+            if (fighter.hp <= 0) {
+              fighter.dead = true;
+              fighter.demoRespawn = 2.5;
+              addParticle(fighter.x + 15, fighter.y + 20, fighter.color, 18, 240);
+            }
+            hit = true;
+            break;
+          }
+        }
+      }
+      if (hit) state.bullets.splice(index, 1);
+    }
+  }
+
+  function drawDemo() {
+    if (!state.demo || state.active) return;
+    drawBackground();
+    drawLava();
+    for (const [index, platform] of platforms().entries()) drawPlatform(platform, index);
+    drawLavaPlatformGlow();
+    drawBullets();
+    for (const bot of state.demo.bots) drawCharacter(bot);
+    drawCharacter(state.demo.player);
+    drawParticles();
+  }
+
+  // ---- Configurable key bindings ----
+  function keyLabel(code) {
+    if (!code) return "—";
+    if (code.startsWith("Key")) return code.slice(3);
+    if (code.startsWith("Digit")) return code.slice(5);
+    if (code.startsWith("Arrow")) return `↑↓←→"[${code.slice(5)}]"` && code.slice(5).toUpperCase();
+    const map = {
+      Space: "ESPACIO", ShiftLeft: "SHIFT IZQ", ShiftRight: "SHIFT DER",
+      ControlLeft: "CTRL IZQ", ControlRight: "CTRL DER", AltLeft: "ALT",
+      AltRight: "ALT DER", Tab: "TAB", Escape: "ESC", Enter: "ENTER",
+      Backquote: "`", Mouse0: "CLIC IZQ", Mouse1: "CLIC CENTRAL", Mouse2: "CLIC DER",
+    };
+    return map[code] || code.toUpperCase();
+  }
+
+  function renderBindings() {
+    for (const [action, code] of Object.entries(state.bindings)) {
+      updateText([[`data-bind='${action}'`].map((selector) => `[${selector}]`).join("")], keyLabel(code));
+      const element = document.querySelector(`[data-bind="${action}"]`);
+      if (element) element.textContent = keyLabel(code);
+    }
+    const hint = findElement("#hud-controls-hint");
+    if (hint) {
+      hint.innerHTML =
+        `<span class="keycap">${keyLabel(state.bindings.left)}</span><span class="keycap">${keyLabel(state.bindings.right)}</span> Moverse ` +
+        `<span class="keycap">${keyLabel(state.bindings.sprint)}</span> Correr ` +
+        `<span class="keycap">${keyLabel(state.bindings.crouch)}</span> Agacharse / deslizarse ` +
+        `<span class="keycap">${keyLabel(state.bindings.jump)}</span> Saltar ` +
+        `<span class="keycap">${keyLabel(state.bindings.fire)}</span> Disparar`;
+    }
+  }
+
+  function saveBindings() {
+    try { localStorage.setItem("cyber-arena-bindings", JSON.stringify(state.bindings)); } catch (_error) {}
+  }
+
+  function restoreBindings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("cyber-arena-bindings") || "null");
+      if (saved && typeof saved === "object") {
+        for (const action of Object.keys(DEFAULT_BINDINGS)) {
+          if (typeof saved[action] === "string") state.bindings[action] = saved[action];
+        }
+      }
+    } catch (_error) {}
+    renderBindings();
+  }
+
+  function beginKeyCapture(action) {
+    state.awaitingKey = action;
+    document.querySelectorAll("[data-bind]").forEach((element) => {
+      element.classList.toggle("is-capturing", element.dataset.bind === action);
+    });
+    const button = document.querySelector(`[data-bind="${action}"]`);
+    if (button) button.textContent = "Presiona una tecla…";
+  }
+
+  function endKeyCapture() {
+    state.awaitingKey = null;
+    state.pendingConflict = null;
+    document.querySelectorAll("[data-bind]").forEach((element) => {
+      element.classList.remove("is-capturing");
+    });
+    renderBindings();
+  }
+
+  function assignKey(action, code) {
+    const holder = Object.entries(state.bindings).find(([owner, ownerCode]) => owner !== action && ownerCode === code);
+    if (holder) {
+      const previous = state.bindings[action];
+      state.bindings[holder[0]] = previous;
+      notify(`"${BINDING_LABELS[holder[0]]}" ahora usa ${keyLabel(previous)} (intercambio automático).`, "info");
+    }
+    state.bindings[action] = code;
+    saveBindings();
+    endKeyCapture();
+    uiSound("confirm");
+  }
+
+  function bindingPressed(action, key, code, button) {
+    const bound = state.bindings[action];
+    if (bound.startsWith("Mouse")) return button === Number(bound.slice(5));
+    return code === bound;
+  }
+
+  function keyMatches(action, event) {
+    return bindingPressed(action, event.key?.toLowerCase(), event.code, event.button);
+  }
+
+  function isBoundCode(code) {
+    return Object.values(state.bindings).includes(code);
   }
 
   function addParticle(x, y, color, count = 5, speed = 210) {
@@ -1054,8 +1531,47 @@
       (state.touchMove.active && Math.abs(state.touchMove.x) > 0.84);
   }
 
+  function resizePlayer(player, height) {
+    if (height > player.height) {
+      const bottom = player.y + player.height;
+      const top = bottom - height;
+      if (top < 0) return false;
+      for (const [x, y, platformWidth, platformHeight] of platforms()) {
+        const overlapsX = player.x + player.width > x + 2 && player.x < x + platformWidth - 2;
+        const overlapsY = top < y + platformHeight - 3 && bottom > y + 3;
+        if (overlapsX && overlapsY) return false;
+      }
+    }
+    const bottom = player.y + player.height;
+    player.y = bottom - height;
+    player.height = height;
+    return true;
+  }
+
+  function finishSlide(player) {
+    player.sliding = false;
+    player.slideTime = 0;
+    player.slideCooldown = SLIDE_COOLDOWN;
+  }
+
   function tryJump(player) {
     const stats = classes[player.class] || classes.RUNNER;
+    if (player.sliding) {
+      finishSlide(player);
+      player.slideCooldown = Math.max(player.slideCooldown, SLIDE_COOLDOWN * 0.7);
+      const direction = Math.sign(player.vx) || player.facing || 1;
+      const carry = Math.min(Math.abs(player.vx), SLIDE_MAX_SPEED);
+      player.vx = direction * carry * 0.94;
+      player.vy = -(stats.jump * 0.98) || -500;
+      player.grounded = false;
+      player.coyote = 0;
+      player.jumps = 1;
+      player.jumpBoostTime = 0.13;
+      player.squash = 0.7;
+      addParticle(player.x + player.width / 2, player.y + player.height, player.color, 10, 170);
+      sound(640, 0.13, "triangle");
+      return true;
+    }
     if (player.climbing) {
       player.climbing = false;
       player.vy = -stats.jump * 0.93 || -500;
@@ -1100,6 +1616,7 @@
     if (player.dead) return;
     const stats = classes[player.class] || classes.RUNNER;
     const move = Math.max(-1, Math.min(1, input.move || 0));
+    const crouchRequested = Boolean(input.crouch);
     const sprintRequested = Boolean(input.sprint) && move !== 0;
     const wasGrounded = player.grounded;
     const oldBottom = player.y + player.height;
@@ -1116,24 +1633,51 @@
       player.coyote = Math.max(0, player.coyote - dt);
     }
 
-    const targetSpeed = stats.speed * (sprintRequested ? 1.16 : 1) * move;
-    if (move) {
-      const sameDirection = Math.sign(player.vx) === Math.sign(move);
-      if (sameDirection && Math.abs(player.vx) > Math.abs(targetSpeed)) {
-        const easing = player.grounded ? 220 : 130;
-        player.vx -= Math.sign(player.vx) *
-          Math.min(Math.abs(player.vx) - Math.abs(targetSpeed), easing * dt);
-      } else {
-        const acceleration = player.grounded ? 2100 : 650;
-        player.vx += Math.sign(targetSpeed - player.vx) *
-          Math.min(Math.abs(targetSpeed - player.vx), acceleration * dt);
+    player.slideCooldown = Math.max(0, (player.slideCooldown || 0) - dt);
+    if (player.sliding && (!crouchRequested || !wasGrounded)) finishSlide(player);
+    if (!player.sliding && crouchRequested && player.slideCooldown <= 0 && wasGrounded && move !== 0 &&
+        Math.abs(player.vx) >= stats.speed * 0.72 && Math.sign(player.vx) === Math.sign(move)) {
+      const speed = Math.abs(player.vx);
+      player.vx = Math.sign(move) * Math.min(SLIDE_MAX_SPEED, Math.max(speed + 70, speed * 1.12));
+      player.sliding = true;
+      player.slideTime = SLIDE_DURATION;
+      player.crouching = true;
+      addParticle(player.x + player.width / 2, player.y + player.height - 3, player.color, 6, 120);
+      if (isPlayer) sound(200, 0.18, "sawtooth", 0.07);
+    }
+
+    if (player.sliding) {
+      const progress = 1 - player.slideTime / SLIDE_DURATION;
+      if (move !== 0 && Math.sign(move) !== Math.sign(player.vx)) finishSlide(player);
+      else {
+        player.vx *= Math.exp(-(1.3 + progress * 2.4) * dt);
+        player.slideTime -= dt;
+        if (isPlayer && Math.random() < dt * 26) {
+          addParticle(player.x + player.width / 2 - player.facing * 14, player.y + player.height - 2, "rgba(160,220,255,.8)", 1, 45);
+        }
+        if (player.slideTime <= 0 || Math.abs(player.vx) < stats.speed * 0.3) finishSlide(player);
       }
     } else {
-      player.vx *= Math.pow(player.grounded ? 0.12 : 0.38, dt);
+      const stanceSpeed = player.crouching ? 0.55 : 1;
+      const targetSpeed = stats.speed * stanceSpeed * (sprintRequested ? 1.16 : 1) * move;
+      if (move) {
+        const sameDirection = Math.sign(player.vx) === Math.sign(move);
+        if (sameDirection && Math.abs(player.vx) > Math.abs(targetSpeed)) {
+          const easing = player.grounded ? 220 : 130;
+          player.vx -= Math.sign(player.vx) *
+            Math.min(Math.abs(player.vx) - Math.abs(targetSpeed), easing * dt);
+        } else {
+          const acceleration = player.grounded ? (player.crouching ? 1300 : 2100) : 650;
+          player.vx += Math.sign(targetSpeed - player.vx) *
+            Math.min(Math.abs(targetSpeed - player.vx), acceleration * dt);
+        }
+      } else {
+        player.vx *= Math.pow(player.grounded ? (player.crouching ? 0.03 : 0.12) : 0.38, dt);
+      }
+      const horizontalCap = SLIDE_MAX_SPEED;
+      player.vx = Math.max(-horizontalCap, Math.min(horizontalCap, player.vx));
+      if (Math.abs(player.vx) < 2) player.vx = 0;
     }
-    const horizontalCap = stats.speed * 1.5;
-    player.vx = Math.max(-horizontalCap, Math.min(horizontalCap, player.vx));
-    if (Math.abs(player.vx) < 2) player.vx = 0;
     if (move) player.facing = move > 0 ? 1 : -1;
 
     if (isPlayer) {
@@ -1149,6 +1693,15 @@
       }
     } else if (input.jumpPressed) {
       tryJump(player);
+    }
+
+    if (!player.sliding) {
+      const wantsCrouch = crouchRequested && player.slideCooldown <= 0;
+      resizePlayer(player, wantsCrouch ? PLAYER_CROUCH_HEIGHT : PLAYER_STANDING_HEIGHT);
+      player.crouching = player.height < PLAYER_STANDING_HEIGHT;
+    } else {
+      resizePlayer(player, PLAYER_SLIDE_HEIGHT);
+      player.crouching = true;
     }
     if (player.jumpBoostTime > 0) {
       if (isPlayer && jumpInput() && player.vy < 0 && !player.climbing) {
@@ -1509,6 +2062,10 @@
     entity.streak = 0;
     addParticle(entity.x + entity.width / 2, entity.y + entity.height / 2, entity.color, 24, 300);
     entity.height = PLAYER_STANDING_HEIGHT;
+    entity.crouching = false;
+    entity.sliding = false;
+    entity.slideTime = 0;
+    entity.slideCooldown = 0;
     entity.grounded = false;
     entity.coyote = 0;
     entity.jumps = 0;
@@ -1686,7 +2243,9 @@
         y: player.y,
         vx: player.vx,
         vy: player.vy,
-        height: PLAYER_STANDING_HEIGHT,
+        height: player.height,
+        crouching: player.crouching,
+        sliding: player.sliding,
         facing: player.facing,
         aim: player.aim,
         hp: player.hp,
@@ -2213,7 +2772,8 @@
     if (character.invulnerable > 0 && Math.floor(performance.now() / 100) % 2 === 0) ctx.globalAlpha = 0.55;
     ctx.translate(x + character.width / 2, y + character.height / 2);
     const squash = character.squash || 1;
-    ctx.scale(squash, (2 - squash));
+    const poseScaleY = character.sliding ? 0.56 : character.crouching ? 0.74 : 1;
+    ctx.scale((character.sliding ? 1.14 : 1) * squash, poseScaleY * (2 - squash));
     ctx.rotate(lean);
     ctx.shadowBlur = isPlayer ? 20 : 12;
     ctx.shadowColor = character.color || colors.cyan;
