@@ -148,6 +148,7 @@
     crates: [],
     feed: [],
     keys: new Set(),
+    codes: new Set(),
     jumpQueued: false,
     jumpBuffer: 0,
     canvasRect: null,
@@ -726,7 +727,18 @@
     if (!state.active) return;
     state.paused = typeof force === "boolean" ? force : !state.paused;
     showScreen(state.paused ? "paused" : "playing");
-    if (!state.paused) state.lastTime = performance.now();
+    if (!state.paused) {
+      state.lastTime = performance.now();
+      for (const fighter of [state.player, ...state.bots]) {
+        if (fighter?.pendingRespawn) {
+          setTimeout(() => {
+            if (!state.active || state.paused || !fighter.pendingRespawn) return;
+            if (fighter === state.player) respawnEntity(fighter);
+            else respawnBot(fighter);
+          }, 600);
+        }
+      }
+    }
     if (state.paused && state.player) {
       const entries = [state.player, ...state.bots, ...state.remotePlayers.values()].filter(Boolean);
       const rank = entries.filter((item) => (item.score || 0) > (state.player.score || 0)).length + 1;
@@ -889,6 +901,33 @@
         });
         notify("Ajustes restablecidos.", "info");
         break;
+      case "reset-bindings":
+        state.bindings = { ...DEFAULT_BINDINGS };
+        saveBindings();
+        endKeyCapture();
+        notify("Controles restablecidos a los valores por defecto.", "info");
+        break;
+      case "reset-binding": {
+        const action = target.dataset.bindAction;
+        if (action && DEFAULT_BINDINGS[action]) {
+          const code = DEFAULT_BINDINGS[action];
+          const holder = Object.entries(state.bindings).find(([owner, ownerCode]) => owner !== action && ownerCode === code);
+          if (holder) {
+            const previous = state.bindings[action];
+            state.bindings[holder[0]] = previous;
+          }
+          state.bindings[action] = code;
+          saveBindings();
+          renderBindings();
+          uiSound("confirm");
+        }
+        break;
+      }
+      case "bind-key":
+        if (state.awaitingKey === target.dataset.bind) endKeyCapture();
+        else beginKeyCapture(target.dataset.bind);
+        uiSound("click");
+        break;
       case "toggle-scoreboard": {
         const opened = document.body.classList.toggle("scoreboard-open");
         target.setAttribute("aria-pressed", String(opened));
@@ -912,8 +951,22 @@
   document.addEventListener("click", (event) => {
     const target = event.target.closest("[data-action]");
     if (target?.matches("button[type='submit']")) return;
-    if (target) handleAction(target);
+    if (!target) return;
+    const action = target.dataset.action;
+    const kind = /back|menu|lobby|quit|leave|resume/.test(action) ? "back" : /confirm|save|play|start|join|create/.test(action) ? "confirm" : "click";
+    uiSound(kind);
+    handleAction(target);
   });
+  document.addEventListener("pointerover", (event) => {
+    const target = event.target.closest("button:not([disabled]), .menu-link");
+    if (target && !(event.relatedTarget instanceof Element && event.relatedTarget.closest("button, .menu-link"))) uiSound("hover");
+  });
+  const unlockAudio = () => {
+    ensureAudio();
+    if (state.music.enabled) updateMusicForScreen(document.body.dataset.screen || "menu");
+  };
+  window.addEventListener("pointerdown", unlockAudio, true);
+  window.addEventListener("keydown", unlockAudio, true);
   document.addEventListener("input", (event) => {
     const target = event.target;
     if (target.matches("[data-setting]")) {
@@ -1119,8 +1172,8 @@
   // ---- Demo match behind the main menu (decorative, reuses the engine) ----
   function initDemo() {
     if (state.active || state.demo) return;
-    const previousMap = state.selectedMap;
     state.demo = {
+      map: ["NEON DISTRICT", "SKYLINE", "GRID ZERO"][Math.floor(Math.random() * 3)],
       cameraX: 0,
       cameraY: 0,
       targetX: 0,
@@ -1129,17 +1182,14 @@
       bots: [],
       bullets: [],
     };
-    state.selectedMap = ["NEON DISTRICT", "SKYLINE", "GRID ZERO"][Math.floor(Math.random() * 3)];
-    const center = { x: WORLD.width / 2 - 15, y: 300 };
     state.demo.player = {
-      ...buildDemoFighter("SPECTER-9", "RUNNER", colors.cyan, center),
+      ...buildDemoFighter("SPECTER-9", "RUNNER", colors.cyan, { x: WORLD.width / 2 - 15, y: 300 }),
       weapon: "CYBER RIFLE",
     };
     state.demo.bots = ["VANTA", "NULLBYTE", "KARMA//77"].map((name, index) => ({
       ...buildDemoFighter(name, ["SNIPER", "TANK", "RUNNER"][index], [colors.pink, colors.yellow, colors.lime][index], randomSpawnPoint()),
       weapon: index === 1 ? "NEON SHOTGUN" : "PLASMA PISTOL",
     }));
-    state.selectedMap = previousMap;
   }
 
   function buildDemoFighter(name, playerClass, color, spawn) {
@@ -1181,13 +1231,13 @@
       lastHitBy: null,
       lastHitAt: 0,
       demoRespawn: 0,
+      demo: true,
     };
   }
 
   function updateDemo(dt) {
     if (!state.demo || state.active) return;
     const demo = state.demo;
-    state.gameElapsed += dt * 0;
     const fighters = [demo.player, ...demo.bots];
     for (const fighter of fighters) {
       if (fighter.dead) {
@@ -1322,7 +1372,7 @@
     if (!code) return "—";
     if (code.startsWith("Key")) return code.slice(3);
     if (code.startsWith("Digit")) return code.slice(5);
-    if (code.startsWith("Arrow")) return `↑↓←→"[${code.slice(5)}]"` && code.slice(5).toUpperCase();
+    if (code.startsWith("Arrow")) return { Up: "↑", Down: "↓", Left: "←", Right: "→" }[code.slice(5)] || code.slice(5).toUpperCase();
     const map = {
       Space: "ESPACIO", ShiftLeft: "SHIFT IZQ", ShiftRight: "SHIFT DER",
       ControlLeft: "CTRL IZQ", ControlRight: "CTRL DER", AltLeft: "ALT",
@@ -1334,7 +1384,6 @@
 
   function renderBindings() {
     for (const [action, code] of Object.entries(state.bindings)) {
-      updateText([[`data-bind='${action}'`].map((selector) => `[${selector}]`).join("")], keyLabel(code));
       const element = document.querySelector(`[data-bind="${action}"]`);
       if (element) element.textContent = keyLabel(code);
     }
@@ -1363,6 +1412,32 @@
       }
     } catch (_error) {}
     renderBindings();
+  }
+
+  function buildBindingsUi() {
+    const list = findElement("#bind-list");
+    if (!list || list.childElementCount) return;
+    for (const [action, label] of Object.entries(BINDING_LABELS)) {
+      const row = document.createElement("div");
+      row.className = "bind-row";
+      const name = document.createElement("span");
+      name.className = "bind-name";
+      name.textContent = label;
+      const key = document.createElement("button");
+      key.type = "button";
+      key.className = "bind-key";
+      key.dataset.action = "bind-key";
+      key.dataset.bind = action;
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.className = "bind-reset";
+      reset.dataset.action = "reset-binding";
+      reset.dataset.bindAction = action;
+      reset.setAttribute("aria-label", `Restablecer ${label}`);
+      reset.textContent = "↺";
+      row.append(name, key, reset);
+      list.appendChild(row);
+    }
   }
 
   function beginKeyCapture(action) {
@@ -1515,20 +1590,29 @@
   }
 
   function moveInput() {
-    const left = state.keys.has("a") || state.keys.has("arrowleft");
-    const right = state.keys.has("d") || state.keys.has("arrowright");
+    const left = state.codes.has(state.bindings.left) || state.keys.has("arrowleft");
+    const right = state.codes.has(state.bindings.right) || state.keys.has("arrowright");
     let value = (right ? 1 : 0) - (left ? 1 : 0);
     if (state.touchMove.active) value = state.touchMove.x;
     return Math.max(-1, Math.min(1, value));
   }
 
   function jumpInput() {
-    return state.keys.has("w") || state.keys.has(" ") || state.keys.has("arrowup") || state.keys.has("jump");
+    return state.codes.has(state.bindings.jump) || state.keys.has("jump");
+  }
+
+  function crouchInput() {
+    return state.codes.has(state.bindings.crouch) || state.touchCrouchHeld ||
+      (state.touchMove.active && state.touchMove.y > 0.62);
   }
 
   function sprintInput() {
-    return state.keys.has("shift") ||
+    return state.codes.has(state.bindings.sprint) ||
       (state.touchMove.active && Math.abs(state.touchMove.x) > 0.84);
+  }
+
+  function fireInput() {
+    return state.pointer.down || state.touchAim.fire;
   }
 
   function resizePlayer(player, height) {
@@ -1799,10 +1883,10 @@
 
     if (player.x < 0) { player.x = 0; player.vx = Math.max(0, player.vx); }
     if (player.x + player.width > WORLD.width) { player.x = WORLD.width - player.width; player.vx = Math.min(0, player.vx); }
-    if (player.y + player.height >= lavaSurfaceY(player.x + player.width / 2)) {
+    if (!player.demo && player.y + player.height >= lavaSurfaceY(player.x + player.width / 2)) {
       player.hp = 0;
       lavaDeath(player, isPlayer);
-    } else if (player.y > WORLD.height + 70) {
+    } else if (!player.demo && player.y > WORLD.height + 70) {
       player.hp = 0;
       eliminate(player, "the abyss");
     }
@@ -2076,48 +2160,69 @@
     if (entity === state.player) {
       state.deaths += 1;
       pushFeed(cause === "lava" ? `${entity.name} CAYÓ EN LA LAVA` : `${entity.name} FUE ELIMINADO`, cause === "lava" ? "#ff8c2a" : colors.pink);
+      entity.respawnAt = performance.now() + 1700;
+      entity.respawnDelay = 1700;
       setTimeout(() => {
         if (!state.active) return;
-        const spawn = randomSpawnPoint();
-        entity.x = spawn.x;
-        entity.y = spawn.y;
-        entity.vx = 0;
-        entity.vy = 0;
-        entity.height = PLAYER_STANDING_HEIGHT;
-        entity.hp = entity.maxHp;
-        entity.dead = false;
-        entity.invulnerable = 2;
-        entity.grounded = false;
-        entity.climbStamina = classes[entity.class]?.stamina || 240;
+        if (state.paused) {
+          entity.pendingRespawn = true;
+          return;
+        }
+        respawnEntity(entity);
       }, 1700);
     } else {
       pushFeed(cause === "lava" ? `${entity.name} CAYÓ EN LA LAVA` : `${killerName} ELIMINÓ A ${entity.name}`, cause === "lava" ? "#ff8c2a" : state.player?.color || colors.cyan);
       setTimeout(() => {
         if (!state.active || !state.bots.includes(entity)) return;
-        const spawn = randomSpawnPoint();
-        entity.x = spawn.x;
-        entity.y = spawn.y;
-        entity.hp = entity.maxHp;
-        entity.vx = 0;
-        entity.vy = 0;
-        entity.height = PLAYER_STANDING_HEIGHT;
-        entity.dead = false;
-        entity.invulnerable = 1;
-        entity.grounded = false;
-        entity.climbing = false;
-        entity.grapple = null;
-        entity.climbStamina = classes[entity.class]?.stamina || 200;
-        entity.fatigued = false;
-        entity.jumps = 0;
-        entity.jumpBoostTime = 0;
-        entity.aim = Math.PI;
-        entity.shotCooldown = 0.5;
-        entity.aiJump = 1.2 + Math.random() * 1.1;
-        entity.squash = 1;
+        if (state.paused) {
+          entity.pendingRespawn = true;
+          return;
+        }
+        respawnBot(entity);
       }, 3000);
     }
     sound(120, 0.35, "sawtooth", 0.14);
     updateHud();
+  }
+
+  function respawnEntity(entity) {
+    const spawn = randomSpawnPoint();
+    entity.x = spawn.x;
+    entity.y = spawn.y;
+    entity.vx = 0;
+    entity.vy = 0;
+    entity.height = PLAYER_STANDING_HEIGHT;
+    entity.hp = entity.maxHp;
+    entity.dead = false;
+    entity.invulnerable = 2;
+    entity.grounded = false;
+    entity.climbStamina = classes[entity.class]?.stamina || 240;
+    entity.pendingRespawn = false;
+    updateHud();
+  }
+
+  function respawnBot(entity) {
+    const spawn = randomSpawnPoint();
+    entity.x = spawn.x;
+    entity.y = spawn.y;
+    entity.hp = entity.maxHp;
+    entity.vx = 0;
+    entity.vy = 0;
+    entity.height = PLAYER_STANDING_HEIGHT;
+    entity.dead = false;
+    entity.invulnerable = 1;
+    entity.grounded = false;
+    entity.climbing = false;
+    entity.grapple = null;
+    entity.climbStamina = classes[entity.class]?.stamina || 200;
+    entity.fatigued = false;
+    entity.jumps = 0;
+    entity.jumpBoostTime = 0;
+    entity.aim = Math.PI;
+    entity.shotCooldown = 0.5;
+    entity.aiJump = 1.2 + Math.random() * 1.1;
+    entity.squash = 1;
+    entity.pendingRespawn = false;
   }
 
   function dropCrate() {
@@ -2256,9 +2361,14 @@
   }
 
   function update(dt) {
-    if (!state.active || state.paused) return;
+    if (!state.active) {
+      if (!state.paused && state.demo) updateDemo(dt);
+      return;
+    }
+    if (state.paused) return;
     const player = state.player;
     if (!player) return;
+    state.gameElapsed += dt;
     const mouse = cachedScreenToWorld(state.pointer.x, state.pointer.y);
     state.pointer.worldX = mouse.x;
     state.pointer.worldY = mouse.y;
@@ -2281,11 +2391,12 @@
     state.jumpQueued = false;
     applyPhysics(player, {
       move: moveInput(),
+      crouch: crouchInput(),
       sprint: sprintInput(),
       jumpPressed,
       grappleReleased: state.keys.has("grapple-release"),
     }, dt, true);
-    if (state.pointer.down || state.touchAim.fire) firePlayer();
+    if (fireInput()) firePlayer();
     if (state.mode === "offline") updateBots(dt);
     updateBullets(dt);
     updateCrates(dt);
@@ -2294,8 +2405,6 @@
     updateNetwork(dt);
     state.cameraX += (Math.max(0, Math.min(WORLD.width - VIEW.width, player.x + player.width / 2 - VIEW.width / 2)) - state.cameraX) * Math.min(1, dt * 5);
     state.cameraY += (Math.max(0, Math.min(WORLD.height - VIEW.height, player.y + player.height / 2 - VIEW.height / 2)) - state.cameraY) * Math.min(1, dt * 5);
-    state.shake *= Math.pow(0.035, dt);
-    if (state.shake < 0.15) state.shake = 0;
     state.roomCheckTimer += dt;
     if (state.roomCheckTimer > 1) {
       state.roomCheckTimer = 0;
@@ -2306,6 +2415,15 @@
       state.healthHudTimer = 0;
       updateHealthHud(player);
     }
+    state.shake *= Math.pow(0.035, dt);
+    if (state.shake < 0.15) state.shake = 0;
+  }
+
+  function updateDemoFrame(dt) {
+    if (state.active || !state.demo) return;
+    if (document.body.dataset.screen === "game") return;
+    if (!state.advancedParticles && state.bullets.length > 30) state.bullets.length = 30;
+    updateDemo(dt);
   }
 
   function buildBackgroundGradients() {
@@ -3029,6 +3147,10 @@
     const shakeX = state.screenShake ? (Math.random() - 0.5) * state.shake : 0;
     const shakeY = state.screenShake ? (Math.random() - 0.5) * state.shake : 0;
     ctx.translate(shakeX, shakeY);
+    if (!state.active && state.demo) {
+      drawDemo();
+      return;
+    }
     drawBackground();
     drawLava();
     for (const [index, platform] of platforms().entries()) drawPlatform(platform, index);
@@ -3249,31 +3371,40 @@
       setPlayerIdentity();
       restoreTouchLayout();
     }
+    restoreBindings();
   }
 
   window.addEventListener("keydown", (event) => {
+    if (state.awaitingKey) {
+      event.preventDefault();
+      if (event.code === "Escape") {
+        endKeyCapture();
+        uiSound("back");
+      } else {
+        assignKey(state.awaitingKey, event.code);
+      }
+      return;
+    }
     const key = event.key.toLowerCase();
     if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "tab"].includes(key)) event.preventDefault();
     state.keys.add(key);
-    if ((key === "w" || key === " " || key === "arrowup") && !event.repeat) {
+    state.codes.add(event.code);
+    if (bindingPressed("jump", key, event.code) && !event.repeat) {
       state.keys.add("jump");
       state.jumpQueued = true;
     }
-    if (key === "escape") {
-      if (state.paused) togglePause(false);
-      else if (state.active) togglePause(true);
+    if (bindingPressed("pause", key, event.code) && !event.repeat) {
+      if (state.active) togglePause();
     }
-    if (key === "tab") document.body.classList.add("scoreboard-open");
-    if (key === "1") equipWeapon("PLASMA PISTOL");
-    if (key === "2") equipWeapon("CYBER RIFLE");
-    if (key === "3") equipWeapon("NEON SHOTGUN");
-    if (key === "4") equipWeapon("RAIL SNIPER");
+    if (bindingPressed("scoreboard", key, event.code)) document.body.classList.add("scoreboard-open");
   });
   window.addEventListener("keyup", (event) => {
     const key = event.key.toLowerCase();
     state.keys.delete(key);
-    if (key === "w" || key === " " || key === "arrowup") state.keys.delete("jump");
-    if (key === "tab") document.body.classList.remove("scoreboard-open");
+    state.codes.delete(event.code);
+    if (bindingPressed("scoreboard", event.key?.toLowerCase(), event.code, -1) || key === "tab") {
+      document.body.classList.remove("scoreboard-open");
+    }
   });
   canvas.addEventListener("pointermove", (event) => {
     updatePointerPosition(event.clientX, event.clientY);
@@ -3281,7 +3412,8 @@
   canvas.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "touch") return;
     updatePointerPosition(event.clientX, event.clientY);
-    if (event.button === 2) {
+    if (state.awaitingKey) return;
+    if (bindingPressed("grapple", null, event.code, event.button)) {
       const point = screenToWorld(event.clientX, event.clientY);
       if (state.player) {
         state.player.grapple = { x: point.x, y: point.y };
@@ -3289,7 +3421,7 @@
       }
       return;
     }
-    if (event.button === 0) {
+    if (bindingPressed("fire", null, event.code, event.button)) {
       state.pointer.down = true;
       sound(240, 0.035, "square", 0.025);
     }
@@ -3442,6 +3574,22 @@
   jumpButton?.addEventListener("pointercancel", releaseJump);
   jumpButton?.addEventListener("lostpointercapture", releaseJump);
 
+  const crouchButton = findElement("#touch-crouch");
+  const releaseCrouch = () => {
+    state.touchCrouchHeld = false;
+    crouchButton?.classList.remove("is-active");
+  };
+  crouchButton?.addEventListener("pointerdown", (event) => {
+    if (state.touchLayoutEditing) return;
+    event.preventDefault();
+    crouchButton.setPointerCapture(event.pointerId);
+    state.touchCrouchHeld = true;
+    crouchButton.classList.add("is-active");
+  });
+  crouchButton?.addEventListener("pointerup", releaseCrouch);
+  crouchButton?.addEventListener("pointercancel", releaseCrouch);
+  crouchButton?.addEventListener("lostpointercapture", releaseCrouch);
+
   const grappleButton = findElement("#touch-grapple");
   grappleButton?.addEventListener("pointerdown", (event) => {
     if (state.touchLayoutEditing) return;
@@ -3484,6 +3632,8 @@
   };
 
   restorePreferences();
+  restoreBindings();
+  buildBindingsUi();
   setOption("controlMode", findElement("#setting-control-mode")?.value || "auto");
   fitCanvas();
   showScreen("menu");

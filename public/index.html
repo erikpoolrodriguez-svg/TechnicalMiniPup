@@ -231,8 +231,20 @@
                 <div class="option-control"><select class="select" id="setting-control-mode" name="controlMode" data-setting="controlMode"><option value="auto">Automático</option><option value="pc">PC · teclado y ratón</option><option value="touch">Móvil · controles táctiles</option></select></div>
               </div>
               <div class="option-row">
-                <div><label class="option-name" for="setting-volume">Volumen de efectos</label><span class="option-description">Disparos y señales de la arena.</span></div>
+                <div><label class="option-name" for="setting-sound-enabled">Efectos de sonido</label><span class="option-description">Disparos, saltos y botones.</span></div>
+                <div class="option-control"><label class="switch" aria-label="Efectos de sonido"><input id="setting-sound-enabled" name="soundEnabled" data-setting="soundEnabled" type="checkbox" checked><span class="switch-track"></span></label></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-volume">Volumen de efectos</label><span class="option-description">Volumen general de los efectos.</span></div>
                 <div class="option-control range-control"><input id="setting-volume" name="volume" data-setting="volume" type="range" min="0" max="100" value="72" aria-label="Volumen de efectos de sonido"><output class="range-value" for="setting-volume">72%</output></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-music-enabled">Música de ambiente</label><span class="option-description">Música cyberpunk en el menú y el lobby.</span></div>
+                <div class="option-control"><label class="switch" aria-label="Música de ambiente"><input id="setting-music-enabled" name="musicEnabled" data-setting="musicEnabled" type="checkbox" checked><span class="switch-track"></span></label></div>
+              </div>
+              <div class="option-row">
+                <div><label class="option-name" for="setting-music-volume">Volumen de la música</label><span class="option-description">Nivel de la música de ambiente.</span></div>
+                <div class="option-control range-control"><input id="setting-music-volume" name="musicVolume" data-setting="musicVolume" type="range" min="0" max="100" value="60" aria-label="Volumen de la música"><output class="range-value" for="setting-music-volume">60%</output></div>
               </div>
               <div class="option-row">
                 <div><label class="option-name" for="setting-sensitivity">Sensibilidad de apuntado</label><span class="option-description">Respuesta del joystick táctil.</span></div>
@@ -252,6 +264,16 @@
               </div>
             </section>
             <aside class="options-aside">
+              <section class="panel bindings-panel" aria-labelledby="bindings-heading">
+                <div class="panel-header"><h2 class="panel-title" id="bindings-heading">Controles</h2><span class="tag">TECLADO / RATÓN</span></div>
+                <div class="panel-body">
+                  <div class="bind-list" id="bind-list"></div>
+                  <div class="bind-actions">
+                    <button class="btn btn-small btn-quiet" id="action-reset-bindings" type="button" data-action="reset-bindings">Restablecer valores por defecto</button>
+                  </div>
+                  <p class="bind-note">Haz clic en una tecla y luego pulsa la nueva. Esc cancela. Si la tecla está en uso, se intercambia.</p>
+                </div>
+              </section>
               <div class="tip-card">
                 <h3>Consejo / 01</h3>
                 <p>El juego se adapta al teléfono en vertical u horizontal. Puedes mover y cambiar el tamaño de cada control durante la partida.</p>
@@ -293,7 +315,7 @@
             <div class="hud-actions">
               <button class="btn btn-small btn-quiet" id="action-toggle-scoreboard" type="button" data-action="toggle-scoreboard" aria-controls="hud-scoreboard" aria-pressed="false">Puntuación <span class="keycap">TAB</span></button>
               <button class="btn btn-small btn-quiet touch-layout-trigger" id="action-edit-controls" type="button" data-action="edit-controls" aria-label="Editar controles táctiles" aria-controls="touch-layout-editor">Editar</button>
-              <button class="btn btn-small btn-pink" id="action-pause-match" type="button" data-action="pause-match">Pausa <span aria-hidden="true">Ⅱ</span></button>
+              <button class="btn btn-small btn-pink pause-corner" id="action-pause-match" type="button" data-action="pause-match" aria-label="Pausar partida">Ⅱ Pausa</button>
             </div>
           </div>
           <aside class="hud-scoreboard" id="hud-scoreboard" aria-label="Match scoreboard">
@@ -331,7 +353,7 @@
           <p class="eyebrow">PARTIDA EN PAUSA / MOMENTO SEGURO</p>
           <h1 class="screen-title" id="pause-title">Toma un <span class="title-accent">respiro.</span></h1>
           <p class="overlay-text">La arena espera. Tú decides el siguiente movimiento.</p>
-          <div class="pause-meta"><span>Puntuación <strong id="pause-score">0</strong></span><span>Posición <strong id="pause-placement">—</strong></span></div>
+          <div class="pause-meta"><span>Posición <strong id="pause-placement">—</strong></span><span>Bajas <strong id="pause-kills">0</strong></span><span>Caídas <strong id="pause-deaths">0</strong></span><span>Tiempo <strong id="pause-time">00:00</strong></span></div>
           <div class="overlay-actions">
             <button class="btn btn-primary btn-wide" id="action-resume-match" type="button" data-action="resume-match">Volver al combate <span class="btn-arrow" aria-hidden="true">→</span></button>
             <button class="btn btn-quiet btn-wide" id="action-pause-options" type="button" data-action="open-options">Opciones</button>
