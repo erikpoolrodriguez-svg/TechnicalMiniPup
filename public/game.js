@@ -2796,21 +2796,57 @@
     const px = x - state.cameraX;
     const py = y - state.cameraY;
     if (px + width < -30 || px > VIEW.width + 30) return;
-    const gradient = ctx.createLinearGradient(0, py, 0, py + Math.max(height, 34));
-    gradient.addColorStop(0, "#273454");
-    gradient.addColorStop(0.17, "#131d32");
-    gradient.addColorStop(1, "#080e1b");
+    const accent = index % 2 ? colors.cyan : colors.pink;
+    const bodyHeight = Math.max(height, 34);
     ctx.save();
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = index % 2 ? colors.cyan : colors.pink;
+    // Soportes verticales hacia abajo (estructura industrial)
+    ctx.fillStyle = "rgba(10,16,32,.92)";
+    ctx.fillRect(px + 14, py + bodyHeight - 6, 6, 26);
+    ctx.fillRect(px + width - 20, py + bodyHeight - 6, 6, 26);
+    ctx.fillStyle = "rgba(30,44,74,.9)";
+    ctx.fillRect(px + 15, py + bodyHeight - 6, 2, 26);
+    ctx.fillRect(px + width - 19, py + bodyHeight - 6, 2, 26);
+    // Cuerpo con degradado y borde superior iluminado
+    const gradient = ctx.createLinearGradient(0, py, 0, py + bodyHeight);
+    gradient.addColorStop(0, "#2c3b60");
+    gradient.addColorStop(0.16, "#16223c");
+    gradient.addColorStop(1, "#0a1120");
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = accent;
     ctx.fillStyle = gradient;
-    ctx.fillRect(px, py, width, Math.max(height, 34));
+    ctx.fillRect(px, py, width, bodyHeight);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "#405273";
+    // Cubierta metálica superior
+    ctx.fillStyle = "#4a5f85";
     ctx.fillRect(px, py, width, 7);
-    ctx.fillStyle = index % 3 ? colors.cyan : colors.pink;
-    ctx.globalAlpha = 0.9;
-    ctx.fillRect(px + 6, py + 6, Math.min(width - 12, 55), 2);
+    ctx.fillStyle = "rgba(255,255,255,.16)";
+    ctx.fillRect(px, py, width, 2);
+    // Neón de borde a lo ancho de la cubierta
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = accent;
+    ctx.fillStyle = accent;
+    ctx.fillRect(px + 2, py + 2.5, width - 4, 1.6);
+    ctx.shadowBlur = 0;
+    // Paneles con remaches
+    ctx.fillStyle = "rgba(255,255,255,.045)";
+    for (let panelX = px + 6; panelX < px + width - 26; panelX += 52) {
+      ctx.fillRect(panelX, py + 10, 44, bodyHeight - 18);
+    }
+    ctx.fillStyle = "rgba(1,5,13,.55)";
+    for (let panelX = px + 6; panelX < px + width - 26; panelX += 52) {
+      ctx.fillRect(panelX, py + 10, 44, 2);
+    }
+    ctx.fillStyle = "rgba(148,179,213,.4)";
+    for (let panelX = px + 6; panelX < px + width - 26; panelX += 52) {
+      ctx.fillRect(panelX + 3, py + 14, 2, 2);
+      ctx.fillRect(panelX + 39, py + 14, 2, 2);
+      ctx.fillRect(panelX + 3, py + bodyHeight - 8, 2, 2);
+      ctx.fillRect(panelX + 39, py + bodyHeight - 8, 2, 2);
+    }
+    // Tira de luz al centro y conductos
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = accent;
+    ctx.fillRect(px + 6, py + 7, Math.min(width - 12, 55), 2);
     ctx.globalAlpha = 0.42;
     for (let k = 1; k < width / 48; k += 1) {
       ctx.fillStyle = "#7283a0";
@@ -2821,8 +2857,15 @@
       ctx.fillStyle = "rgba(1,5,13,.65)";
       ctx.fillRect(px + 14 + k * Math.max(38, width - 42), py + 13, 8, 8);
     }
+    // Luz parpadeante inferior (baliza anti-lava)
+    const blink = (Math.sin(state.lavaTime * 3.4 + index * 1.7) + 1) / 2;
+    ctx.globalAlpha = 0.35 + blink * 0.65;
+    ctx.fillStyle = index % 2 ? colors.pink : colors.cyan;
+    ctx.fillRect(px + 4, py + bodyHeight - 3, 5, 2);
+    ctx.fillRect(px + width - 9, py + bodyHeight - 3, 5, 2);
+    ctx.globalAlpha = 1;
     if (height > 50) {
-      ctx.strokeStyle = "rgba(148,179,213,.18)";
+      ctx.strokeStyle = "rgba(148,179,213,.2)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(px + 8, py + 18);
